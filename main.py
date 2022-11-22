@@ -151,7 +151,7 @@ def calculate_reward(ts, fs, gs, action, prob, baseline_theta, residual_matrix, 
     beta   = baseline_theta[-F_LEN:].flatten()
 
     # Calculate reward
-    estimated_reward = gs @ alpha0 + (prob * (fs @ alpha1)) + (action - prob) * (fs @ beta)
+    estimated_reward = gs[1] * alpha0[1] + action* (fs @ beta)
 
     if user_specific:
         # Calculate the reward for the user-specific model
@@ -235,6 +235,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
 
     # Posterior initialized using priors
     post_sigma, post_mu = np.copy(prior_sigma), np.copy(prior_mu)
+    post_mu=np.reshape(post_mu, (post_mu.shape[0], 1))
 
     # DS to store availability, probabilities, features, actions, posteriors and rewards
     availability_matrix = np.zeros((NDAYS * NTIMES))
@@ -280,9 +281,9 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             fs_matrix[ts] = fs
             gs_matrix[ts] = gs
             #post_mu=np.reshape(post_mu.shape[0], 1)
-            post_mu_matrix[ts] = np.reshape(post_mu.shape[0],1)
+            post_mu_matrix[ts] = post_mu[:,0]
             post_sigma_matrix[ts] = post_sigma
-                
+            
         # Update posterior
         post_mu, post_sigma = calculate_posterior(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
@@ -294,7 +295,6 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     # Save results
     with open(output_dir + f"/results_{user}_{boot_num}.pkl", "wb") as f:
         pkl.dump(result, f)
-                                                    
 
 # %%
 def main():
@@ -333,12 +333,6 @@ def main():
         os.makedirs(log_dir)
 
     args.user_specific=False
-
-#    print(baseline_thetas[args.user])
-#    print(residual_matrix[args.user])
-    #print("User spec is "+str(args.user_specific))
-    #print(residual_matrix.shape)
-    #print(baseline_thetas[args.baseline].shape)
 
     # Run algorithm
     run_algorithm(data[args.user], args.user, args.bootstrap, args.user_specific, residual_matrix[args.user], baseline_thetas[args.user], output_dir, log_dir)
