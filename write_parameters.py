@@ -5,6 +5,7 @@
 #####  (iii) residual matrix
 ###########################################
 # %%
+# %%
 import pandas as pd
 import numpy as np
 import rpy2.robjects as robjects
@@ -13,6 +14,7 @@ import scipy.stats as stats
 import scipy.linalg as linalg
 import argparse
 import os
+import pickle as pkl
 
 PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
 PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
@@ -29,6 +31,10 @@ G_LEN = len(G_KEYS)
 
 E0 = 0.2
 E1 = 0.1
+
+true_mu= np.random.uniform(-1,1,(18,))
+true_sigma= np.random.uniform(0,.1,(18,18))
+true_sigma=np.matmul(np.transpose(true_sigma), true_sigma)
 
 # %%
 # Load data
@@ -147,28 +153,6 @@ def calculate_post_prob(fs, post_mu, post_sigma, eta = 0):
     return phi_prob
 
 # %%
-#reward = calculate_reward(ts, fs, gs, action, prob_fsb, baseline_theta, residual_matrix, user_specific)
-def calculate_reward(ts, fs, gs, action, prob, baseline_theta, residual_matrix, user_specific = False, resampled_residuals=None):
-    '''Calculate the reward for a given action'''
-
-    # Get alpha and betas from the baseline
-    alpha0 = baseline_theta[:G_LEN].flatten()
-    alpha1 = baseline_theta[-F_LEN:].flatten()
-    beta   = baseline_theta[-F_LEN:].flatten()
-
-    # Calculate reward
-    estimated_reward = gs @ alpha0 + (prob * (fs @ alpha1)) + (action - prob) * (fs @ beta)
-
-    if user_specific:
-        # Calculate the reward for the user-specific model
-        reward = resampled_residuals[0, ts] + estimated_reward
-    else:
-        # Calculate the reward for the population baseline model
-        reward = residual_matrix[ts] + estimated_reward
-
-    return reward
-
-# %%
 def calculate_phi(prob_matrix, action_matrix, fs_matrix, gs_matrix):
     '''Calculate phi for each user at each time point'''
     Phi = np.expand_dims(np.hstack((gs_matrix, fs_matrix * prob_matrix.reshape(-1, 1), \
@@ -223,16 +207,29 @@ def calculate_posterior(prior_sigma, prior_mu, sigma, availability_matrix, prob_
     
     return post_mu, post_sigma
 
-
 # %%
 def select_action(p):
     '''Select action from bernoulli distribution with probability p'''
     return stats.bernoulli.rvs(p)
 
+# o.w. 
+def calculate_reward(mu, sigma, fs, gs, prob,action):
+    alpha0 =  mu[:len(G_KEYS)].flatten()
+    alpha1 =  mu[-len(F_KEYS):].flatten()
+    beta=mu[-len(F_KEYS):].flatten()   
+        
+    reward = gs @ alpha0 + (prob * (fs @ alpha1)) + (action - prob) * (fs @ beta)
+
+    return reward
+
 # %%
 def run_algorithm(data, user):
     '''Run the algorithm for each user and each bootstrap'''
 
+    rewards=data[:,5]
+    rewards=list(rewards[~np.isnan(rewards)])
+    imputeRewardValue=sum(rewards)/len(rewards)
+    
     # Load priors
     prior_sigma, prior_mu, sigma = load_priors()
 
@@ -241,7 +238,8 @@ def run_algorithm(data, user):
 
     # Posterior initialized using priors
     post_sigma, post_mu = np.copy(prior_sigma), np.copy(prior_mu)
-
+    post_mu=np.reshape(post_mu, (post_mu.shape[0], 1))
+    
     # DS to store availability, probabilities, features, actions, posteriors and rewards
     availability_matrix = np.zeros((NDAYS * NTIMES))
     prob_matrix = np.zeros((NDAYS * NTIMES))
@@ -251,7 +249,7 @@ def run_algorithm(data, user):
     gs_matrix = np.zeros((NDAYS * NTIMES, G_LEN))
     post_mu_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN))
     post_sigma_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN, G_LEN + 2 * F_LEN))
-
+    
     for day in range(NDAYS):
         # loop for each decision time during the day
         for time in range(NTIMES):
@@ -262,24 +260,32 @@ def run_algorithm(data, user):
             # State of the user at time ts
             availability, fs, gs, dosage, reward, action, prob_fsb = determine_user_state(data[ts], dosage)
 
+            if np.isnan(reward):
+                reward=imputeRewardValue
+
             # Save user's availability
             availability_matrix[ts] = availability
             
             # If user is available
             if availability == 1:
+                # Calculate probability of (fs x beta) > n
+                #prob_fsb = calculate_post_prob(fs, post_mu, post_sigma)
+
+                # Sample action with probability prob_fsb from bernoulli distribution
+                #action = select_action(prob_fsb)
                 
                 # Save probability, features, action and reward
                 prob_matrix[ts] = prob_fsb
                 action_matrix[ts] = action
-                reward_matrix[ts] = reward
+                reward_matrix[ts] = reward#calculate_reward(true_mu, true_sigma,fs, gs, prob_fsb, action)
 
             # Save features and state
             fs_matrix[ts] = fs
             gs_matrix[ts] = gs
-            post_mu=np.reshape(post_mu.shape[0], 1)
-            post_mu_matrix[ts] = post_mu
+                        
+            post_mu_matrix[ts] = post_mu[:,0]
             post_sigma_matrix[ts] = post_sigma
-                
+                            
         # Update posterior
         post_mu, post_sigma = calculate_posterior(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
@@ -296,7 +302,7 @@ def initial_run():
     for i in range(NUSERS):
         result_i=run_algorithm(data[i],i)
         allResults.append(result_i)
-    return allResults
+    return allResults,data
 
 def get_residual_pairs(results, baseline="Prior"):
     prior_sigma, prior_mu, sigma = load_priors()
@@ -313,9 +319,13 @@ def get_residual_pairs(results, baseline="Prior"):
                 action=results[user]['action'][ts]
                 reward=results[user]['reward'][ts]
 
-                # get estiamted reward,
-                alpha, alpha_sd, beta, beta_sd = get_priors_alpha_beta(posterior_user_T, np.zeros(results[user]['post_sigma'][NDAYS-1].shape))
-                estimated_reward = gs @ alpha + prob * (fs @ beta) + (action - prob) * (fs @ beta)
+                # get estimated reward,
+                alpha = posterior_user_T[:G_LEN].flatten()
+                alpha2=posterior_user_T[G_LEN:G_LEN+F_LEN].flatten()
+                beta = posterior_user_T[-F_LEN:].flatten()
+    
+                baseline_reward= gs[1] * alpha[1] #dosage*alpha_1
+                estimated_reward = baseline_reward + prob * (fs @ alpha2) + (action - prob) * (fs @ beta)
                 residual_matrix[user, ts]=reward-estimated_reward
 
         baseline_theta=posterior_user_T
@@ -327,10 +337,9 @@ def get_residual_pairs(results, baseline="Prior"):
     
     return residual_matrix, baseline_thetas
 
-import pickle
 np.random.seed(0)
 
-result=initial_run()
+result,data=initial_run()
 
 res_matrix, baseline_prior = get_residual_pairs(result, "Prior")
 res_matrix, baseline_Posterior=get_residual_pairs(result, "Posterior")
@@ -339,12 +348,10 @@ res_matrix, baseline_0Tx=get_residual_pairs(result, "ZeroAtAll")
 baselines={"prior": baseline_prior, "posterior": baseline_Posterior, "all0TxEffect": baseline_0Tx}
 
 with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/baseline_parameters.pkl', 'wb') as handle:
-    pickle.dump(baselines, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
     
 with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/residual_matrix.pkl', 'wb') as handle:
-    pickle.dump(res_matrix, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    pkl.dump(res_matrix, handle, protocol=pkl.HIGHEST_PROTOCOL)
     
 with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl', 'wb') as handle:
-    pickle.dump(result, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    
-    
+    pkl.dump(result, handle, protocol=pkl.HIGHEST_PROTOCOL)
