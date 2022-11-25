@@ -21,7 +21,7 @@ def main():
     if experiment == 1:
 
         # Define the parameters
-        boot_run = idx / NUSERS
+        boot_run = idx // NUSERS
 
         # Set the seed
         np.random.seed(boot_run)
