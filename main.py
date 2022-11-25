@@ -325,8 +325,8 @@ def main():
         os.makedirs(args.output)
     if not os.path.exists(args.log):
         os.makedirs(args.log)
-    output_dir = os.path.join(args.output, "bootstrap_" + str(args.bootstrap), "user_" + str(args.user))
-    log_dir = os.path.join(args.log, "bootstrap_" + str(args.bootstrap), "user_" + str(args.user))
+    output_dir = os.path.join(args.output, "bootstrap_" + str(args.bootstrap), "user_" + str(args.seed))
+    log_dir = os.path.join(args.log, "bootstrap_" + str(args.bootstrap), "user_" + str(args.seed))
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     if not os.path.exists(log_dir):
