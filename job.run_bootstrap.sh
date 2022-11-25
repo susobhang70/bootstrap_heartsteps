@@ -19,6 +19,6 @@ conda activate /n/home12/susobhan/.conda/envs/heartsteps
 
 module load R/4.0.2-fasrc01
 
-python run_timeloop.py ${SLURM_ARRAY_TASK_ID}
+python run_boostrap.py ${SLURM_ARRAY_TASK_ID}
 
 # To run first 4 experiments, use: sbatch --array=0-3 job.run_boostrap.sh

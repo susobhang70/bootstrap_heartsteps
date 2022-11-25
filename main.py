@@ -1,6 +1,6 @@
 # %%
 import pandas as pd
-import pickle as pkl
+import pickle5 as pkl
 import numpy as np
 import rpy2.robjects as robjects
 from collections import OrderedDict
