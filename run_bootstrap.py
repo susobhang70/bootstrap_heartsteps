@@ -2,7 +2,6 @@ import subprocess
 import numpy as np
 import sys
 import os
-import yaml
 from datetime import date, datetime
 from itertools import product
 
