@@ -1,6 +1,6 @@
 # %%
 import pandas as pd
-import pickle as pkl
+import pickle5 as pkl
 import numpy as np
 import rpy2.robjects as robjects
 from collections import OrderedDict
@@ -303,7 +303,7 @@ def main():
     parser.add_argument("-u", "--user", type=int, required=True, help="User number")
     parser.add_argument("-b", "--bootstrap", type=int, required=True, help="Bootstrap number")
     parser.add_argument("-s", "--seed", type=int, required=True, help="Random seed")
-    parser.add_argument("-us", "--user_specific", type=bool, required=True, help="User specific experiment")
+    parser.add_argument("-us", "--user_specific", default=False, type=bool, required=False, help="User specific experiment")
     parser.add_argument("-o", "--output", type=str, default="./output", required=False, help="Output file directory name")
     parser.add_argument("-l", "--log", type=str, default="./log", required=False, help="Log file directory name")
     parser.add_argument("-bi", "--baseline", type=str, default="Prior", required=False, help="Baseline of interest")
@@ -325,8 +325,8 @@ def main():
         os.makedirs(args.output)
     if not os.path.exists(args.log):
         os.makedirs(args.log)
-    output_dir = os.path.join(args.output, "user_" + str(args.user), "bootstrap_" + str(args.bootstrap))
-    log_dir = os.path.join(args.log, "user_" + str(args.user), "bootstrap_" + str(args.bootstrap))
+    output_dir = os.path.join(args.output, "bootstrap_" + str(args.bootstrap), "user_" + str(args.seed))
+    log_dir = os.path.join(args.log, "bootstrap_" + str(args.bootstrap), "user_" + str(args.seed))
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     if not os.path.exists(log_dir):

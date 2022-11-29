@@ -1,2 +1,6 @@
 data/
 .ipynb_checkpoints/
+init/
+log/
+output/
+joblogs/
