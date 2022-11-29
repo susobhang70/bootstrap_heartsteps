@@ -142,23 +142,17 @@ def calculate_post_prob(fs, post_mu, post_sigma, eta = 0):
 
 # %%
 #reward = calculate_reward(ts, fs, gs, action, prob_fsb, baseline_theta, residual_matrix, user_specific)
-def calculate_reward(ts, fs, gs, action, prob, baseline_theta, residual_matrix, user_specific = False, resampled_residuals=None):
+def calculate_reward(ts, fs, gs, action, prob, baseline_theta, residual_matrix):
     '''Calculate the reward for a given action'''
 
     # Get alpha and betas from the baseline
     alpha0 = baseline_theta[:G_LEN].flatten()
-    alpha1 = baseline_theta[-F_LEN:].flatten()
+    #alpha1 = baseline_theta[-F_LEN:].flatten()
     beta   = baseline_theta[-F_LEN:].flatten()
 
     # Calculate reward
     estimated_reward = gs[1] * alpha0[1] + action* (fs @ beta)
-
-    if user_specific:
-        # Calculate the reward for the user-specific model
-        reward = resampled_residuals[0, ts] + estimated_reward
-    else:
-        # Calculate the reward for the population baseline model
-        reward = residual_matrix[ts] + estimated_reward
+    reward = residual_matrix[ts] + estimated_reward # this residual matrix will either by the one from original data or a resampled with replacemnet version if user-specific
 
     return reward
 
@@ -293,12 +287,20 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             "fs": fs_matrix, "gs": gs_matrix, "post_mu": post_mu_matrix, "post_sigma": post_sigma_matrix}
     
     # Save results
-    with open(output_dir + f"/results_{user}_{boot_num}.pkl", "wb") as f:
-        pkl.dump(result, f)
+    if not user_specific:
+        with open(output_dir + f"/results_{user}_{boot_num}.pkl", "wb") as f:
+            pkl.dump(result, f)
+    else:
+        pass
+
+def resample_user_residuals(residual_matrix, user):
+    T= NDAYS * NTIMES
+    resampled_indices = np.random.choice(range(T), T)
+    residual_matrix=residual_matrix[resampled_indices]
+    return residual_matrix
 
 # %%
 def main():
-
     parser = argparse.ArgumentParser()
     parser.add_argument("-u", "--user", type=int, required=True, help="User number")
     parser.add_argument("-b", "--bootstrap", type=int, required=True, help="Bootstrap number")
@@ -332,10 +334,13 @@ def main():
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
-    args.user_specific=False
+    #args.user_specific=False
+    residual_matrix=residual_matrix[args.user]
+    if args.user_specific:
+        residual_matrix=resample_user_residuals(residual_matrix, args.user)
 
     # Run algorithm
-    run_algorithm(data[args.user], args.user, args.bootstrap, args.user_specific, residual_matrix[args.user], baseline_thetas[args.user], output_dir, log_dir)
+    run_algorithm(data[args.user], args.user, args.bootstrap, args.user_specific, residual_matrix, baseline_thetas[args.user], output_dir, log_dir)
 
 # %%
 
