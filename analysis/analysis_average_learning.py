@@ -54,41 +54,68 @@ def getPlotData(original_result, bootstrapped_results, state):
 
     return xAxis, allYs
 
+def isBSAboveOGProportionAmountOfTimes(allYs, b, prop):
+    counter=0
+    T=len(allYs[b])
+    for t in range(T):
+        if allYs['original'][t] <= allYs[b][t]: # black above blue
+            counter=counter+1
+    return 1 if (float(counter)/float(T) >= prop) else 0
+
+def getStatisticsBSCurves(allYs,B,proportion):
+    counter=0
+    for b in range(B):
+        counter=counter+int(isBSAboveOGProportionAmountOfTimes(allYs,b, proportion))
+    return float(counter)/float(B)*100
+
+def getStringStatistics(stats):
+    space="    "
+    display=space+"Percent of Bootstrapped Curves above the Observed Curve 80 Percent of the Time: "+str(stats['Geq_80'])
+    display=display+"\n"+space+"Percent of Bootstrapped Curves above the Observed Curve 100 Percent of the Time: "+str(stats['Geq_100'])
+    return display
+
 def plotResult_AverageLearning(original_result, bootstrapped_results, state, image_path, baseline="Prior"):
     xs, allYs=getPlotData(original_result, bootstrapped_results, state)
 
-    bsThickness=1
+    #compute other statistics, like the proportion of black curves above the blue prop amount of the times
+    proportionStats={}
+    proportionStats['Geq_80']=round(getStatisticsBSCurves(allYs, len(bootstrapped_results), .8),2)
+    proportionStats['Geq_100']=round(getStatisticsBSCurves(allYs, len(bootstrapped_results), 1),2)
+    statisticsLine=getStringStatistics(proportionStats)
+
+    bsThickness=.75
     opacity=.5
     plt.clf()
     f = plt.figure()
     f.set_figwidth(10)
-    f.set_figheight(5)
+    f.set_figheight(8)
 
     B=len(bootstrapped_results)
     from scipy.interpolate import make_interp_spline, BSpline
-    newX=np.linspace(min(xs), max(xs), 450*10000)
+    newX=np.linspace(min(xs), max(xs), 450*100)
     for b in range(B-1):
-        spl=make_interp_spline(xs, allYs[b], k=3)
-        smooth_b=spl(newX)
-        plt.plot(newX,smooth_b, color='k', linewidth=bsThickness, alpha=opacity)
+        #spl=make_interp_spline(xs, allYs[b], k=3)
+        #smooth_b=spl(newX)
+        #plt.plot(newX,smooth_b, color='k', linewidth=bsThickness, alpha=opacity)
+        plt.plot(xs,allYs[b], color='k', linewidth=bsThickness, alpha=opacity)
+    #spl=make_interp_spline(xs, allYs[B-1], k=3)
+    #smooth_b=spl(newX)
+    #plt.plot(newX,smooth_b, color='k',label="Bootstrapped Average Posterior Means", linewidth=bsThickness, alpha=opacity)
+    plt.plot(xs,allYs[B-1], color='k',label="Bootstrapped Average Posterior Means", linewidth=bsThickness, alpha=opacity)
 
-        #plt.plot(xs,allYs[b], color='k', linewidth=bsThickness, alpha=opacity)
-    spl=make_interp_spline(xs, allYs[B-1], k=3)
-    smooth_b=spl(newX)
-    plt.plot(newX,smooth_b, color='k',label="Bootstrapped Average Posterior Means", linewidth=bsThickness, alpha=opacity)
-    #plt.plot(xs,allYs[B-1], color='k',label="Bootstrapped Average Posterior Means", linewidth=bsThickness, alpha=opacity)
-
-    spl=make_interp_spline(xs, allYs['original'], k=3)
-    smooth_o=spl(newX)
-    plt.plot(newX,smooth_o, color='b', label="Observed Average Posterior Means", linewidth=2, alpha=1)
-    #plt.plot(xs,allYs['original'], color='b', label="Observed Average Posterior Means", linewidth=2, alpha=1)
+    #spl=make_interp_spline(xs, allYs['original'], k=3)
+    #smooth_o=spl(newX)
+    #plt.plot(newX,smooth_o, color='b', label="Observed Average Posterior Means", linewidth=2, alpha=1)
+    plt.plot(xs,allYs['original'], color='b', label="Observed Average Posterior Means", linewidth=2, alpha=1)
+    
     plt.legend(loc="upper right")
     plt.title('Observed Average Posterior Mean vs. Decision Time: '+baseline+' as the Baseline')
+    plt.annotate(statisticsLine,(0,0), (5, -35), xycoords='axes fraction', textcoords='offset points', va='top')
     plt.xlabel('Decision Time')
     plt.ylabel('Posterior Mean')
     plt.savefig(image_path, format="png")
     #plt.show()
-    plt.close()
+    plt.close()    
 
 # %%
 def load_original_run(output_path):
@@ -103,6 +130,7 @@ def load_bootstrap_metadata(bootstrap_loc):
         bootstrap_dir=bootstrap_loc+"/bootstrap_"+str(i)
         users=os.listdir(bootstrap_dir)
         bootstrap_i_paths=[]
+        users=[f for f in users if not f.startswith('.')]#ignore hidden files
         for user_dir in users:
             filepath=os.listdir(os.path.join(bootstrap_dir, user_dir))[0]
             filepath=os.path.join(bootstrap_dir, user_dir, filepath)

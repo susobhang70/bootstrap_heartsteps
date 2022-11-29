@@ -129,6 +129,7 @@ def load_bootstrap_metadata(bootstrap_loc):
         bootstrap_dir=bootstrap_loc+"/bootstrap_"+str(i)
         users=os.listdir(bootstrap_dir)
         bootstrap_i_paths=[]
+        users=[f for f in users if not f.startswith('.')]#ignore hidden files
         for user_dir in users:
             filepath=os.listdir(os.path.join(bootstrap_dir, user_dir))[0]
             filepath=os.path.join(bootstrap_dir, user_dir, filepath)
