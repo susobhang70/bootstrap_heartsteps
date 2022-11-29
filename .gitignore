@@ -7,3 +7,4 @@ joblogs/
 output/plots/
 *.png
 *.pdf
+*.DS_STORE
