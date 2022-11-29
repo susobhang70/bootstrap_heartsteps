@@ -7,10 +7,14 @@ import scipy.linalg as linalg
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure
 import math
+import argparse
+
 
 PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl"
 PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
 F_KEYS = ["intercept", "dosage", "engagement", "other_location", "variation"]
+F_KEYS2 = ["Intercept", "Dosage", "Engagement", "Other_Location", "Variation"]
+
 F_LEN = len(F_KEYS)
 G_KEYS = ["intercept", "dosage", "engagement", "other_location", "variation", "temperature", "logpresteps", "sqrt_totalsteps"]
 G_LEN = len(G_KEYS)
@@ -33,13 +37,13 @@ def load_priors():
 
     return prior_sigma, prior_mu, sigma
 
-def getUpperAndLowers(data, prior_mu, prior_sigma, interceptIndex, z=1.96):
+def getUpperAndLowers(data, prior_mu, prior_sigma, F_index, z=1.96):
     data_dict={'upper': [], 'lower':[], 'increment':[], 'mean': [], 'labels':[]}
     FinalTime=NDAYS*NTIMES-1
     for i in range(len(data)):
-        mean=data[i]['post_mu'][FinalTime][-F_LEN:][interceptIndex]
+        mean=data[i]['post_mu'][FinalTime][-F_LEN:][F_index]
         var=data[i]['post_sigma'][FinalTime][-F_LEN:, -F_LEN:]
-        std=math.sqrt(var[interceptIndex, interceptIndex])
+        std=math.sqrt(var[F_index, F_index])
 
         data_dict['upper'].append(mean+z*std)
         data_dict['lower'].append(mean-z*std)
@@ -47,8 +51,8 @@ def getUpperAndLowers(data, prior_mu, prior_sigma, interceptIndex, z=1.96):
         data_dict['mean'].append(mean)
         data_dict['labels'].append(i)
     
-    mean=prior_mu[-F_LEN:][interceptIndex]
-    std=math.sqrt(prior_sigma[-F_LEN:, -F_LEN:][interceptIndex,interceptIndex])
+    mean=prior_mu[-F_LEN:][F_index]
+    std=math.sqrt(prior_sigma[-F_LEN:, -F_LEN:][F_index,F_index])
 
     data_dict['upper'].append(mean+z*std)
     data_dict['lower'].append(mean-z*std)
@@ -57,8 +61,8 @@ def getUpperAndLowers(data, prior_mu, prior_sigma, interceptIndex, z=1.96):
     data_dict['labels'].append("Prior")
     return data_dict
 
-def plot_CIs(data, prior_mu, prior_sigma, interceptIndex):
-    uppersAndLowers=getUpperAndLowers(data, prior_mu, prior_sigma, interceptIndex)
+def plot_CIs(data, prior_mu, prior_sigma, F_index):
+    uppersAndLowers=getUpperAndLowers(data, prior_mu, prior_sigma, F_index)
     
     plt.clf()
     figure(figsize=(8, 12), dpi=80)
@@ -112,16 +116,17 @@ def plot_CIs(data, prior_mu, prior_sigma, interceptIndex):
 
     plt.axvline(x = 0, ymin = 0, ymax = 92, color ='red', linestyle ="--", linewidth=1)
     plt.legend(loc="upper right")
-    plt.title('95% Credible intervals at the End of the Study')
-    plt.xlabel('Coefficient ± Credible Interval')
+    plt.title('95% Credible intervals at the End of the Study for '+F_KEYS2[F_index])
+    plt.xlabel('Mean Coefficient for '+ F_KEYS2[F_index] +' ± Credible Interval')
     plt.ylabel('User')
 
-    plt.show()
+    plt.savefig("./output/plots/"+"CI_Plots_"+F_KEYS2[F_index]+'.png', format="png")
 
-    plt.savefig("/Users/raphaelkim/src/research/CI_Plots_"+str(interceptIndex)+'.png')
-    
 with open(PKL_DATA_PATH, 'rb') as handle:
     original_result=pkl.load(handle)#, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
+parser = argparse.ArgumentParser()
+parser.add_argument("-f", "--F_index", type=int, default=0, required=False, help="Index of F advantage")
+args = parser.parse_args()
 prior_sigma,prior_mu,sigma=load_priors()
-plot_CIs(original_result, prior_mu, prior_sigma, 0)
+plot_CIs(original_result, prior_mu, prior_sigma, args.F_index)

@@ -4,3 +4,6 @@ init/
 log/
 output/
 joblogs/
+output/plots/
+*.png
+*.pdf
