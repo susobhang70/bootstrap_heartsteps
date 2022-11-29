@@ -15,6 +15,7 @@ import scipy.linalg as linalg
 import argparse
 import os
 import pickle as pkl
+import random
 
 PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
 PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
@@ -31,10 +32,6 @@ G_LEN = len(G_KEYS)
 
 E0 = 0.2
 E1 = 0.1
-
-true_mu= np.random.uniform(-1,1,(18,))
-true_sigma= np.random.uniform(0,.1,(18,18))
-true_sigma=np.matmul(np.transpose(true_sigma), true_sigma)
 
 # %%
 # Load data
@@ -338,6 +335,7 @@ def get_residual_pairs(results, baseline="Prior"):
     return residual_matrix, baseline_thetas
 
 np.random.seed(0)
+random.seed(0)
 
 result,data=initial_run()
 

@@ -164,6 +164,7 @@ def main():
     # image_path=os.path.join(args.output, "user_"+args.baseline)
     result=getResult(original_result[args.user], bootstrapped_results, args.baseline)
     print(result)
+
 # %%
 if __name__ == "__main__":
     main()
