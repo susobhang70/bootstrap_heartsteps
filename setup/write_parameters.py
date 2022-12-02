@@ -33,6 +33,8 @@ G_LEN = len(G_KEYS)
 E0 = 0.2
 E1 = 0.1
 
+priorPaper=True
+
 # %%
 # Load data
 def load_data():
@@ -100,6 +102,13 @@ def load_priors():
     prior_sigma = linalg.block_diag(alpha_psd, beta_psd, beta_psd)
     prior_mu = np.concatenate([alpha_pmean, beta_pmean, beta_pmean])
 
+    #F_KEYS = ["intercept", "dosage", "engagement", "other_location", "variation"]
+    #G_KEYS = ["intercept", "dosage", "engagement", "other_location", "variation", "temperature", "logpresteps", "sqrt_totalsteps"]
+    if priorPaper:
+        prior_mu=np.array([0, 0, 0, 0,0,0,3.79, 1.67, .71, 0,0,-.33,0, .71,0,0,-.33,0])
+        prior_sigma=np.zeros((18,18))
+        diag=np.array([1.43, 1.67, 1.33, .43, .45,1.55,2.67, 2.04, 1.85,1.34,1.38,.56, 2.04,1.85,1.34,1.38,.56,2.04])**2
+        prior_sigma[range(18), range(18)]=diag
     return prior_sigma, prior_mu, sigma
 
 # %%
@@ -345,11 +354,30 @@ res_matrix, baseline_0Tx=get_residual_pairs(result, "ZeroAtAll")
 
 baselines={"prior": baseline_prior, "posterior": baseline_Posterior, "all0TxEffect": baseline_0Tx}
 
-with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/baseline_parameters.pkl', 'wb') as handle:
-    pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
+# write result
+
+if priorPaper:
+    with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91_priorPaper.pkl', 'wb') as handle:
+        pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
     
-with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/residual_matrix.pkl', 'wb') as handle:
-    pkl.dump(res_matrix, handle, protocol=pkl.HIGHEST_PROTOCOL)
+    with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/baseline_parameters_priorPaper.pkl', 'wb') as handle:
+        pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
+        
+    with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/residual_matrix_priorPaper.pkl', 'wb') as handle:
+        pkl.dump(res_matrix, handle, protocol=pkl.HIGHEST_PROTOCOL)
+        
+    with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91_priorPaper.pkl', 'wb') as handle:
+        pkl.dump(result, handle, protocol=pkl.HIGHEST_PROTOCOL)
+
+else:    
+    with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl', 'wb') as handle:
+        pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
     
-with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl', 'wb') as handle:
-    pkl.dump(result, handle, protocol=pkl.HIGHEST_PROTOCOL)
+    with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/baseline_parameters.pkl', 'wb') as handle:
+        pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
+        
+    with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/residual_matrix.pkl', 'wb') as handle:
+        pkl.dump(res_matrix, handle, protocol=pkl.HIGHEST_PROTOCOL)
+        
+    with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl', 'wb') as handle:
+        pkl.dump(result, handle, protocol=pkl.HIGHEST_PROTOCOL)
