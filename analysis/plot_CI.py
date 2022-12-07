@@ -10,7 +10,7 @@ import math
 import argparse
 
 
-PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl"
+PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91_priorPaper.pkl"
 PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
 F_KEYS = ["intercept", "dosage", "engagement", "other_location", "variation"]
 F_KEYS2 = ["Intercept", "Dosage", "Engagement", "Other_Location", "Variation"]
@@ -34,6 +34,9 @@ def load_priors():
 
     prior_sigma = linalg.block_diag(alpha_psd, beta_psd, beta_psd)
     prior_mu = np.concatenate([alpha_pmean, beta_pmean, beta_pmean])
+    print(prior_mu)
+    print(prior_sigma)
+    print(ttt)
 
     return prior_sigma, prior_mu, sigma
 

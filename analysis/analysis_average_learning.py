@@ -8,7 +8,7 @@ import os
 import matplotlib.pyplot as plt
 
 # %%
-PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl"
+PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91_priorPaper.pkl"
 bootstrapped_results_path = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Susobhan/output"
 NDAYS = 90
 NUSERS = 91

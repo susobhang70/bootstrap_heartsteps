@@ -17,7 +17,7 @@ import os
 import pickle as pkl
 import random
 
-PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
+PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91_priorPaper.pkl"
 PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
 NDAYS = 90
 NUSERS = 91
@@ -31,9 +31,9 @@ G_KEYS = ["intercept", "dosage", "engagement", "other_location", "variation", "t
 G_LEN = len(G_KEYS)
 
 E0 = 0.2
-E1 = 0.1
+E1 = 0.8
 
-priorPaper=True
+priorPaper=False
 
 # %%
 # Load data
@@ -75,7 +75,8 @@ def determine_user_state(data, dosage):
     features["logpresteps"] = data[12]
     features["sqrt_totalsteps"] = data[13]
     features["prior_anti"] = data[14]
-    features["dosage"] = LAMBDA * dosage + features["prior_anti"]
+    features["dosage"] = data[6]
+    #features["dosage"] = LAMBDA * dosage + features["prior_anti"]
 
     features["intercept"] = 1
 
@@ -109,6 +110,7 @@ def load_priors():
         prior_sigma=np.zeros((18,18))
         diag=np.array([1.43, 1.67, 1.33, .43, .45,1.55,2.67, 2.04, 1.85,1.34,1.38,.56, 2.04,1.85,1.34,1.38,.56,2.04])**2
         prior_sigma[range(18), range(18)]=diag
+        sigma=2.65
     return prior_sigma, prior_mu, sigma
 
 # %%
