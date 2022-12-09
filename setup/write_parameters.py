@@ -17,7 +17,7 @@ import os
 import pickle as pkl
 import random
 
-PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91_priorPaper.pkl"
+PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
 PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
 NDAYS = 90
 NUSERS = 91
@@ -31,7 +31,7 @@ G_KEYS = ["intercept", "dosage", "engagement", "other_location", "variation", "t
 G_LEN = len(G_KEYS)
 
 E0 = 0.2
-E1 = 0.8
+E1 = 0.1
 
 priorPaper=False
 
