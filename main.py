@@ -66,7 +66,12 @@ def determine_user_state(data, dosage):
     features["logpresteps"] = data[12]
     features["sqrt_totalsteps"] = data[13]
     features["prior_anti"] = data[14]
-    features["dosage"] = LAMBDA * dosage + features["prior_anti"]
+
+    # calculating dosage
+    newdosage = LAMBDA * dosage + features["prior_anti"]
+
+    # standardizing the dosage
+    features["dosage"] = newdosage / 20.0
 
     features["intercept"] = 1
 
@@ -75,7 +80,7 @@ def determine_user_state(data, dosage):
 
     reward = data[5]
 
-    return availability, fs, gs, features["dosage"], reward
+    return availability, fs, gs, newdosage, reward
 
 # %%
 def load_priors():
