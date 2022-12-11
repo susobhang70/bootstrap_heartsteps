@@ -9,6 +9,8 @@ import scipy.linalg as linalg
 import argparse
 import os
 import copy
+import skfda.representation.basis as basis
+import itertools
 
 # %%
 PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
@@ -27,9 +29,24 @@ G_LEN = len(G_KEYS)
 E0 = 0.2
 E1 = 0.1
 
-dosageGrid=[]
-for i in np.arange(0,20,.1):
-    dosageGrid.append(round(i,1))
+MIN_DOSAGE = 0
+MAX_DOSAGE = 20
+
+# %%
+
+# create the dosage basis
+dosage_basis = basis.BSpline((MIN_DOSAGE, MAX_DOSAGE), n_basis=50, order=4)
+
+# create the dosage grid
+dosage_grid = np.arange(MIN_DOSAGE, MAX_DOSAGE + .1, .1)
+
+# evaluate the dosage values using the basis
+dosage_eval = dosage_basis.evaluate(dosage_grid)
+next_dosage_eval0 = dosage_basis.evaluate(dosage_grid * 0.95).squeeze().T
+next_dosage_eval1 = dosage_basis.evaluate(dosage_grid * 0.95 + 1).squeeze().T
+
+# %%
+pd.DataFrame(next_dosage_eval0)
 
 # %%
 # Load data
@@ -225,119 +242,169 @@ def select_action(p):
     '''Select action from bernoulli distribution with probability p'''
     return stats.bernoulli.rvs(p)
 
-def getFrequencies(fs, gs, days):
-    stateProbabilityDict={}
-    for t in range(fs.shape[0]):
-        key=np.concatenate([fs[t], gs[t]])
-        key=str(key)
-        if key in stateProbabilityDict:
-            stateProbabilityDict[key]=stateProbabilityDict[key]+1
+# %%
+
+
+def get_state_probabilities(fs, gs, ts):
+    '''Compute the probability of occurence for each state, given the history until timeslot ts'''
+
+    # Dict to first store occurence counts
+    state_prob = {}
+
+    # Remove the dosage from the state
+    fm = np.delete(fs, 1, axis=1)
+    gm = np.delete(gs, 1, axis=1)
+
+    # Count occurences
+    for i in range(ts):
+
+        # Remove the dosage from the state
+
+        key = str(np.concatenate([fm[i], gm[i]]))
+        if key in state_prob:
+            state_prob[key] += 1
         else:
-            stateProbabilityDict[key]=1
-    for key in list(stateProbabilityDict.keys()):
-        stateProbabilityDict[key]=float(stateProbabilityDict[key])/float(days*NTIMES)
-    return stateProbabilityDict
+            state_prob[key]  = 1
 
-def getEmpiricalRewardEstimate(available, treated, availability, action, fs, gs, probsZ, post_mu, day):
-    indicesAvailableA_TreatT=np.intersect1d(np.where(availability==available), np.where(action==treated))
-    rewardEst=0
-    for t in indicesAvailableA_TreatT:
-        key=np.concatenate([fs[t],gs[t]])
-        key=str(key)
+    # Normalize to get probabilities
+    for key in state_prob.keys():
+        state_prob[key] /= ts
 
+    return state_prob
+
+# %%
+
+
+def get_empirical_rewards_estimate(target_avail, target_action, availability, action, fs, gs, Z_dist, post_mu):
+    '''Calculate the empirical reward estimate'''
+    valid_indices = np.intersect1d(
+        np.where(availability == target_avail), np.where(action == target_action))
+    reward = 0
+
+    # Remove the dosage from the state for generating the key for Z_dist
+    fm = np.delete(fs, 1, axis=1)
+    gm = np.delete(gs, 1, axis=1)
+
+    # Compute r(x, a) i.e. r(target_avail, target_action)
+    for t in valid_indices:
+        key = str(np.concatenate([fm[t], gm[t]]))
+
+        # Extract alpha0 and beta from posterior mu
         alpha = post_mu[:G_LEN].flatten()
         beta = post_mu[-F_LEN:].flatten()
-        fittedReward=gs[t] @ alpha + action[t]*fs[t] @ beta
 
-        rewardEst=rewardEst+fittedReward*probsZ[key]
-    return rewardEst
+        # using target action instead of action[t] for speedup
+        fittedReward = gs[t] @ alpha + target_action * fs[t] @ beta
 
-def dosageTransitions(xPrime, x, tx, lamb=.95,psed=.2):
-    indicator=xPrime==lamb*x+1
-    if tx==1:
+        # Compute the reward integral
+        reward = reward + fittedReward * Z_dist[key]
+
+    return reward
+
+# %%
+
+
+def dosageTransitions(xPrime, x, tx, psed=.2):
+    indicator = (xPrime == LAMBDA * x + 1)
+    if tx == 1:
         return indicator
     else:
-        return psed*indicator+(1-psed)*(xPrime==lamb*x)
+        return psed * indicator + (1-psed) * (xPrime == LAMBDA * x)
 
+# %%
 def pavailableDensity(avail, pavail):
     return pavail**avail + (1-pavail)**(1-avail)
 
-def getValueSummand(dosage, a, pavail, oldV, psed=.2, lamb=LAMBDA):
-    summand=0
-    offset=len(dosageGrid)
-    if a==0:
+# %%
+def get_value_summand(dosage, availability, pavail, V_old, psed=.2, lamb=LAMBDA):
+    summand = 0
+    offset = len(dosage_grid)
+    if availability == 0:
         # case: x'=\lambda*dosage+1,i'=1
-        key=dosageGrid.index(lamb*dosage+1)
-        summand=(psed)*pavail*oldV[key+offset] 
+        key = dosage_grid.index(lamb*dosage+1)
+        summand = (psed)*pavail*V_old[key+offset] 
 
-        # case: x'=\lambda*dosage+1,i'=0. index into oldV with or without offset depending on availability
-        summand=summand+(psed)*(1-pavail)*oldV[key]
+        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
+        summand = summand+(psed)*(1-pavail)*V_old[key]
         
         # case: x'=\lambda*dosage,i'=1
-        key=dosageGrid.index(lamb*dosage)
-        summand=summand+(1-psed)*pavail*oldV[key+offset] 
+        key = dosage_grid.index(lamb*dosage)
+        summand = summand+(1-psed)*pavail*V_old[key+offset] 
 
-        # case: x'=\lambda*dosage,i'=0. index into oldV with or without offset depending on availability
-        summand=summand+(1-psed)*(1-pavail)*oldV[key]
-    if a==1:
+        # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
+        summand = summand+(1-psed)*(1-pavail)*V_old[key]
+    if availability == 1:
         # case: x'=\lambda*dosage+1,i'=1
-        key=dosageGrid.index(lamb*dosage+1)
-        summand=pavail*oldV[key+offset] 
+        key = dosage_grid.index(lamb*dosage+1)
+        summand = pavail*V_old[key+offset] 
 
-        # case: x'=\lambda*dosage+1,i'=0. index into oldV with or without offset depending on availability
-        summand=summand+(1-pavail)*oldV[key]
+        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
+        summand = summand+(1-pavail)*V_old[key]
     return summand
 
-import itertools
-def getValueEstimate(dosage, availability, action, fs, gs, probsZ, post_mu, day, avail_i, pavailHat, oldV, gamma=1): #read in gamma properly
-    # calculate the V(X,i) - only thing that changes in valis0 vs valis1 is tau(x'|x,a) and r_1(x,a). So compute the pavail*oldV
-    if avail_i==0:
-        rAvailable0_Treat0=getEmpiricalRewardEstimate(0, 0, availability, action, fs, gs, probsZ, post_mu, day)
-        v=rAvailable0_Treat0+getValueSummand(dosage, 0, pavailHat, oldV)
+# %%
+def get_value_estimate(dosage, availability_matrix, action, fs, gs, Z_dist, post_mu, cur_avail, p_avail_avg, V_old, gamma=1): #read in gamma properly
+    # calculate the V(X,i) - only thing that changes in valis0 vs valis1 is tau(x'|x,a) and r_1(x,a). So compute the (p_avail_avg * V_old) 
+    if cur_avail == 0:
+        r00 = get_empirical_rewards_estimate(0, 0, availability_matrix, action, fs, gs, Z_dist, post_mu)
+        v   = r00 + get_value_summand(dosage, 0, p_avail_avg, V_old)
     else:
-        rAvailable1_Treat0=getEmpiricalRewardEstimate(1, 0, availability, action, fs, gs, probsZ, post_mu, day)
-        v0=rAvailable1_Treat0+getValueSummand(dosage,0, pavailHat, oldV)
+        r10 = get_empirical_rewards_estimate(1, 0, availability_matrix, action, fs, gs, Z_dist, post_mu)
+        v0  = r10 + get_value_summand(dosage, 0, p_avail_avg, V_old)
 
-        rAvailable1_Treat1=getEmpiricalRewardEstimate(1, 1, availability, action, fs, gs, probsZ, post_mu, day)
-        v1=rAvailable1_Treat1+getValueSummand(dosage,1, pavailHat, oldV)
+        r11 = get_empirical_rewards_estimate(1, 1, availability_matrix, action, fs, gs, Z_dist, post_mu)
+        v1  = r11 + get_value_summand(dosage, 1, p_avail_avg, V_old)
 
-        v=max(v1,v0)
+        v = max(v1, v0)
         #return max
 
-    offset=len(dosageGrid)
-    key=dosageGrid.index(dosage)
-    V=copy.deepcopy(oldV)
-    V[key+int(offset*avail_i)]=v
+    offset = len(dosage_grid)
+    key = dosage_grid.index(dosage)
+    V = copy.deepcopy(V_old)
+    V[key + int(offset * cur_avail)] = v
     return V
 
-def calculate_eta(prior_sigma, prior_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, day, dosage, w=1, H1=1):#read in w and H1 from prior spec rda
+# %%
+def calculate_eta(prior_sigma, prior_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, ts, dosage, w=1, H1=1):#read in w and H1 from prior spec rda
+    '''Calculate eta for a given dosage'''
+
     # estimate ECDF of Z
-    probsZ=getFrequencies(fs_matrix, gs_matrix, day)
-    pavailHat=sum(availability_matrix)/(NTIMES*day)
+    Z_dist = get_state_probabilities(fs_matrix, gs_matrix, ts)
+
+    # calculate mean p(availability)
+    p_avail_avg = np.mean(availability_matrix)
+
 
     # get dosage transition function
     ### 'project into the basis'
 
     # get initial value estimates for V(dosage, i)
-    V=[0]*(len(dosageGrid)*2) #init to 0's! have ordering be dosageGrid(0), dosageGrid(1). dosageGrid(0) means dosagegrid x availability=i
+    # V = [0] * (len(dosage_grid)*2) #init to 0's! have ordering be dosage_grid(0), dosage_grid(1). dosage_grid(i) means dosagegrid x availability=i
+    V = np.zeros((len(dosage_grid), 2))
 
-    epsilon=.00000001
-    delta=10
-    while delta>epsilon:
-        oldV=V
+    epsilon = 1e-8
+    delta = 10
+    while delta > epsilon:
+        V_old = V
 
-        #update value function
-        curAvail=availability_matrix[availability_matrix.shape[0]-1]
-        V=getValueEstimate(dosage, availability_matrix, action_matrix, fs_matrix, gs_matrix, probsZ, post_mu, day, curAvail, pavailHat, oldV)
-        delta=np.linalg.norm(np.array(V) - np.array(oldV))
+        # get current availability
+        cur_avail = availability_matrix[-1]
 
-    # get H
-    Hstar1=getValueSummand(dosage, 1, pavailHat, V)
-    Hstar0=getValueSummand(dosage, 0, pavailHat, V)
-    H_d_plus_1=(1-w)*H1+w*Hstar1 #read in H1 from it
-    H_d_plus_0=(1-w)*H1+w*Hstar0 #read in H1 from it
-    eta=H_d_plus_1-H_d_plus_0
-    #need to get for each dosage we see! modifyyyyy
+        # update value function
+        V = get_value_estimate(dosage, availability_matrix, action_matrix, fs_matrix, gs_matrix, Z_dist, post_mu, cur_avail, p_avail_avg, V_old)
+        delta = np.linalg.norm(V - V_old)
+
+    # get H*(x, a), which is max of all H(x, a) i.e. sum of future discounted rewards
+    Hstar0 = get_value_summand(dosage, 0, p_avail_avg, V)
+    Hstar1 = get_value_summand(dosage, 1, p_avail_avg, V)
+
+    # calculate H(d+1) for both availabilities
+    H_d_plus_0 = (1 - w) * H1 + w * Hstar0 #read in H1 from it
+    H_d_plus_1 = (1 - w) * H1 + w * Hstar1 #read in H1 from it
+
+    # calculate eta
+    eta = H_d_plus_1 - H_d_plus_0
+    # need to get for each dosage we see! modifyyyyy
     return eta
 
 # %%
@@ -410,7 +477,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         # update Eta
         eta = calculate_eta(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
-                                                    action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, day+1, dosage)
+                                                    action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, ts + 1, dosage)
 
     result = {"availability": availability_matrix, "prob": prob_matrix, "action": action_matrix, "reward": reward_matrix,
             "fs": fs_matrix, "gs": gs_matrix, "post_mu": post_mu_matrix, "post_sigma": post_sigma_matrix}
