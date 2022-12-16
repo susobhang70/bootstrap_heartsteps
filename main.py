@@ -11,6 +11,9 @@ import os
 import copy
 import skfda.representation.basis as basis
 import itertools
+import rpy2.robjects.packages as rpackages
+from rpy2.robjects.packages import importr
+rpackages.importr('fda')
 
 # %%
 PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
@@ -305,10 +308,6 @@ def get_empirical_rewards_estimate(target_availability, target_action, fs, gs, p
     #    np.where(availability == target_avail), np.where(action == target_action))
     rewardEstimates=[]
 
-    # Remove the dosage from the state for generating the key for Z_dist
-    fm = np.delete(fs, 1, axis=1)
-    gm = np.delete(gs, 1, axis=1)
-
     # Extract alpha0 and beta from posterior mu
     alpha = post_mu[:G_LEN].flatten()
     beta = post_mu[-F_LEN:].flatten()
@@ -335,8 +334,6 @@ def get_value_summand(dosage, availability, pavail, theta0, theta1, psed=.2, lam
     basis_representation1=dosage_basis.evaluate(dosage*lamb+1)[:,0,0]
     if availability == 0:
         # case: x'=\lambda*dosage+1,i'=1
-        #key = dosage_grid.index(lamb*dosage+1)
-        #key=np.where(dosage_grid==lamb*dosage+1)[0][0]
         V_1_1=basis_representation1 @ theta1
         summand = (psed)*pavail*V_1_1 #V[key+offset] 
 
@@ -346,7 +343,6 @@ def get_value_summand(dosage, availability, pavail, theta0, theta1, psed=.2, lam
         
         # case: x'=\lambda*dosage,i'=1
         V_0_1=basis_representation0 @ theta1
-        #key=np.where(dosage_grid==lamb*dosage)[0][0]
         summand = summand+(1-psed)*pavail* V_0_1#V[key+offset] 
 
         # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
@@ -354,8 +350,6 @@ def get_value_summand(dosage, availability, pavail, theta0, theta1, psed=.2, lam
         summand = summand+(1-psed)*(1-pavail)*V_0_0#V[key]
     if availability == 1:
         # case: x'=\lambda*dosage+1,i'=1
-        #key=np.where(dosage_grid==lamb*dosage+1)[0][0]
-        #key = dosage_grid.index(lamb*dosage+1)
         V_1_1=basis_representation1 @ theta1
         summand = pavail*V_1_1#V[key+offset] 
 
@@ -373,7 +367,6 @@ def bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, pos
         # calculate the V(X,i) - only thing that changes in valis0 vs valis1 is tau(x'|x,a) and r_1(x,a). So compute the (p_avail_avg * V_old) 
         dosage=dosage_grid[i]
         key=np.where(dosage_grid==dosage)[0][0]
-        #key = dosage_grid.index(dosage)
 
         #get reward update when available=0
         r00 = reward_available0_action0[i]
@@ -425,7 +418,7 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
     # calculate mean p(availability)
     p_avail_avg = np.mean(availability_matrix)
     
-    # get rewards matrices for each case: r_i(x,a)
+    # get rewards vectors for each case: r_i(x,a)
     #r_0(x,0)
     reward_available0_action0 = get_empirical_rewards_estimate(0, 0, fs_matrix, gs_matrix, pZ, post_mu, p_avail_avg, ts)
     #r_1(x,0)
@@ -465,7 +458,7 @@ def calculate_eta(theta0, theta1, dosage, availability, psed=.2, w=W, gamma=GAMM
     val=np.sum(thetabar * (cur_dosage_eval0 - cur_dosage_eval1))
     etaHat=val*(1-psed)*(1-gamma) 
 
-    eta=w*etaHat+(1-w)*1#etaInit(dosage)
+    eta=w*etaHat+(1-w)*etaInit(dosage)[0]
     return eta
 
 # %%
@@ -537,7 +530,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         post_mu, post_sigma = calculate_posterior(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                     action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1])
-        # update Eta
+        # update value functions
         theta0,theta1 = calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                     action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, ts + 1, dosage)
