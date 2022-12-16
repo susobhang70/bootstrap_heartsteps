@@ -295,6 +295,7 @@ def get_state_probabilities(fs, gs, ts):
     for key in state_prob.keys():
         state_prob[key] /= ts
 
+    #return vector of probabilities to easily multiply in reward calculations later
     pZ=[]
     for i in range(ts):
         key = str(np.concatenate([fm[i], gm[i]]))
@@ -304,8 +305,6 @@ def get_state_probabilities(fs, gs, ts):
 # %%
 def get_empirical_rewards_estimate(target_availability, target_action, fs, gs, pZ, post_mu, p_avail_avg, ts):
     '''Calculate the empirical reward estimate'''
-    #valid_indices = np.intersect1d(
-    #    np.where(availability == target_avail), np.where(action == target_action))
     rewardEstimates=[]
 
     # Extract alpha0 and beta from posterior mu
@@ -317,97 +316,66 @@ def get_empirical_rewards_estimate(target_availability, target_action, fs, gs, p
         fs[:,1]=np.repeat(dosage_grid[i], ts)#dosage_matrix[:fs.shape[0], i]
         gs[:,1]=np.repeat(dosage_grid[i], ts)#dosage_matrix[:fs.shape[0], i]
 
-        # using target action instead of action[t] for speedup
+        # using target values instead of action[t] for speedup
         fittedReward = gs @ alpha * pZ[:ts]  + target_availability * target_action * (fs @ beta * pZ[:ts])
         rewardEstimates.append(np.sum(fittedReward))
     return rewardEstimates
 
 # %%
-def pavailableDensity(avail, pavail):
-    return pavail**avail + (1-pavail)**(1-avail)
-
-# %%
-def get_value_summand(dosage, availability, pavail, theta0, theta1, psed=.2, lamb=LAMBDA):
+# gets the \sum_{x', i'} \tau(x' \mid x, a)*f_pAvail(i')*V(x',i')
+def get_value_summand(dosage, availability, pavail, theta0, theta1, psed=PSED, lamb=LAMBDA):
     summand = 0
-    #offset = len(dosage_grid)
     basis_representation0=dosage_basis.evaluate(dosage*lamb)[:,0,0]
     basis_representation1=dosage_basis.evaluate(dosage*lamb+1)[:,0,0]
     if availability == 0:
         # case: x'=\lambda*dosage+1,i'=1
         V_1_1=basis_representation1 @ theta1
-        summand = (psed)*pavail*V_1_1 #V[key+offset] 
+        summand = (psed)*pavail*V_1_1 
 
         # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
         V_1_0=basis_representation1 @ theta0
-        summand = summand+(psed)*(1-pavail)*V_1_0 #V[key]
+        summand = summand+(psed)*(1-pavail)*V_1_0 
         
         # case: x'=\lambda*dosage,i'=1
         V_0_1=basis_representation0 @ theta1
-        summand = summand+(1-psed)*pavail* V_0_1#V[key+offset] 
+        summand = summand+(1-psed)*pavail* V_0_1
 
         # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
         V_0_0=basis_representation0 @ theta0
-        summand = summand+(1-psed)*(1-pavail)*V_0_0#V[key]
-    if availability == 1:
+        summand = summand+(1-psed)*(1-pavail)*V_0_0
+    else:#avail==1
         # case: x'=\lambda*dosage+1,i'=1
         V_1_1=basis_representation1 @ theta1
-        summand = pavail*V_1_1#V[key+offset] 
+        summand = pavail*V_1_1
 
         # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
         V_1_0=basis_representation1 @ theta0
-        summand = summand+(1-pavail)*V_1_0#V[key]
+        summand = summand+(1-pavail)*V_1_0
     return summand
 
 # %%
 def bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1, gamma=GAMMA):
+    # set values based on OLS estimates
     V = [0]*(2*len(dosage_grid))
-    V[0:len(dosage_grid)]= next_dosage_eval0 @ theta0
-    V[len(dosage_grid):(2*len(dosage_grid))]= next_dosage_eval1 @ theta1
+
+    # now go through each state and bellman update it
+    # each V[i+()] corresponds to formula max_a [r_i(x,a) + value_summand]
     for i in range(len(dosage_grid)):
-        # calculate the V(X,i) - only thing that changes in valis0 vs valis1 is tau(x'|x,a) and r_1(x,a). So compute the (p_avail_avg * V_old) 
         dosage=dosage_grid[i]
-        key=np.where(dosage_grid==dosage)[0][0]
 
-        #get reward update when available=0
+        #bellman update on avail0 case
         r00 = reward_available0_action0[i]
-        V[key] = r00 + get_value_summand(dosage, 0, p_avail_avg, theta0, theta1)
+        V[i] = r00 + get_value_summand(dosage, 0, p_avail_avg, theta0, theta1)
 
-        #get reward update when available=1
+        #bellman update on avail1 case
         r10 = reward_available1_action0[i]
         v0 = r10 + get_value_summand(dosage, 0, p_avail_avg, theta0,theta1)
 
         r11 = reward_available1_action1[i]
         v1  = r11 + get_value_summand(dosage, 1, p_avail_avg, theta0, theta1)
         v = max(v1, v0)
-        V[key + len(dosage_grid)] = v
+        V[i + len(dosage_grid)] = v
     return V
-
-# get the value for H
-def get_value_summand_H(dosage, action, pavail, V, psed=.2, lamb=LAMBDA):
-    summand = 0
-    offset = len(dosage_grid)
-
-    if action==1:
-        key=np.where(dosage_grid==lamb*dosage+1)[0][0]
-        #key = dosage_grid.index(lamb*dosage+1)
-        summand = pavail*V[key+offset] + (1-pavail)*V[key]
-    else:
-        # case: x'=\lambda*dosage,i'=0
-        key=np.where(dosage_grid==lamb*dosage)[0][0]
-        #key = dosage_grid.index(lamb*dosage)
-        summand = (1-psed)*(1-pavail)*V[key]
-        
-        # case: x'=\lambda*dosage,i'=1
-        summand = summand+(1-psed)*pavail*V[key+offset] 
-
-        # case: x'=\lambda*dosage+1,i'=0.
-        key=np.where(dosage_grid==lamb*dosage+1)[0][0]
-        #key = dosage_grid.index(lamb*dosage+1)
-        summand = summand+(psed)*(1-pavail)*V[key]
-
-        # case: x'=\lambda*dosage+1,i'=1.
-        summand = summand+(psed)*(pavail)*V[key+offset]
-    return summand
 
 # %%
 def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, ts, dosage, w=1, H1=1):#read in w and H1 from prior spec rda
@@ -421,8 +389,10 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
     # get rewards vectors for each case: r_i(x,a)
     #r_0(x,0)
     reward_available0_action0 = get_empirical_rewards_estimate(0, 0, fs_matrix, gs_matrix, pZ, post_mu, p_avail_avg, ts)
+
     #r_1(x,0)
     reward_available1_action0 = get_empirical_rewards_estimate(1, 0, fs_matrix, gs_matrix, pZ, post_mu, p_avail_avg, ts) 
+
     #r_1(x,1)
     reward_available1_action1 = get_empirical_rewards_estimate(1, 1, fs_matrix, gs_matrix, pZ, post_mu, p_avail_avg, ts) 
 
@@ -449,7 +419,7 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
         iters=iters+1
     return theta0, theta1
 
-def calculate_eta(theta0, theta1, dosage, availability, psed=.2, w=W, gamma=GAMMA):
+def calculate_eta(theta0, theta1, dosage, availability, psed=PSED, w=W, gamma=GAMMA):
     cur_dosage_eval0 = dosage_basis.evaluate(dosage*LAMBDA)
     cur_dosage_eval1 = dosage_basis.evaluate(dosage*LAMBDA+1)
 
