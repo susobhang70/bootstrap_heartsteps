@@ -55,9 +55,12 @@ for dosage in dosage_grid:
     dosage_matrix.append(dosageI)
 dosage_matrix=np.matrix(dosage_matrix)
 dosage_matrix=dosage_matrix.T
-
+    
 # %%
 pd.DataFrame(next_dosage_eval0)
+
+dosage_OLS_soln=np.linalg.inv(np.matmul(dosage_eval.T,dosage_eval))#(X'X)^{-1}#201 x 201
+dosage_OLS_soln=np.matmul(dosage_OLS_soln, dosage_eval.T)#(X'X)^{-1}X'# 201 x 50
 
 # %%
 robjects.r['load'](PRIOR_NEW_DATA_PATH)
@@ -434,9 +437,6 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
     V = [0] * (len(dosage_grid)*2) #init to 0's! have ordering be dosage_grid(0), dosage_grid(1). dosage_grid(i) means dosagegrid x availability=i
     theta0=np.zeros(NBASIS)
     theta1=np.zeros(NBASIS)
-
-    dosage_OLS_soln=np.linalg.inv(np.matmul(dosage_eval.T,dosage_eval))#(X'X)^{-1}#201 x 201
-    dosage_OLS_soln=np.matmul(dosage_OLS_soln, dosage_eval.T)#(X'X)^{-1}X'# 201 x 50
 
     epsilon = 1e-8
     delta = 10
