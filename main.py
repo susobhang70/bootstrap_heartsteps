@@ -52,6 +52,7 @@ next_dosage_eval0 = dosage_basis.evaluate(dosage_grid * 0.95).squeeze().T
 next_dosage_eval1 = dosage_basis.evaluate(dosage_grid * 0.95 + 1).squeeze().T
 dosage_eval=dosage_eval[:,:,0]
 
+# setup dosage matrix instead of np.repeat in calculating marginal rewards
 dosage_matrix=[]
 for dosage in dosage_grid:
     dosageI=np.repeat(dosage, NTIMES*NDAYS)
@@ -60,21 +61,18 @@ dosage_matrix=np.matrix(dosage_matrix)
 dosage_matrix=dosage_matrix.T
     
 # %%
-pd.DataFrame(next_dosage_eval0)
-
+# partial dosage ols solutions used in eta proxy update (in particular, where value updates are done via function approximation)
 dosage_OLS_soln=np.linalg.inv(np.matmul(dosage_eval.T,dosage_eval))#(X'X)^{-1}#201 x 201
 dosage_OLS_soln=np.matmul(dosage_OLS_soln, dosage_eval.T)#(X'X)^{-1}X'# 201 x 50
 
 # %%
+# load in prior data results like H1 (eta.init), w, and gamma tuned by peng
 robjects.r['load'](PRIOR_NEW_DATA_PATH)
 banditSpec=robjects.r['bandit.spec'] 
 PSED=banditSpec.rx2("p.sed")[0]
 W=banditSpec.rx2("weight.est")[0]
 GAMMA=banditSpec.rx2("gamma")[0]
-
 etaInit=banditSpec.rx2("eta.init")
-#beta_psd = np.array(priors.rx2("Sigma2"))
-#sigma = float(priors.rx2("sigma")[0])
 
 # %%
 # Load data
@@ -419,9 +417,9 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
         iters=iters+1
     return theta0, theta1
 
-def calculate_eta(theta0, theta1, dosage, availability, psed=PSED, w=W, gamma=GAMMA):
-    cur_dosage_eval0 = dosage_basis.evaluate(dosage*LAMBDA)
-    cur_dosage_eval1 = dosage_basis.evaluate(dosage*LAMBDA+1)
+def calculate_eta(theta0, theta1, dosage, availability, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
+    cur_dosage_eval0 = dosage_basis.evaluate(dosage*lamb)
+    cur_dosage_eval1 = dosage_basis.evaluate(dosage*lamb+1)
 
     p_avail_avg = np.mean(availability)
     thetabar=theta0*(1-p_avail_avg)+theta1*(p_avail_avg)
