@@ -344,7 +344,7 @@ def get_value_summand(dosage_index, availability, pavail, theta0, theta1, psed=P
     return summand
 
 # %%
-def bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1, gamma=GAMMA):
+def bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1, gamma=GAMMA):
     # set values based on OLS estimates
     V = [0]*(2*len(dosage_grid))
 
@@ -396,7 +396,9 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
     theta0=np.zeros(NBASIS)
     theta1=np.zeros(NBASIS)
 
-    V = bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
+    V_old = V
+    V = bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
+    delta =  np.amax(np.abs(np.array(V)-np.array(V_old))) #np.linalg.norm(np.array(V) - np.array(V_old))
 
     epsilon = 1e-2
     delta = 10
@@ -411,19 +413,18 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
         #print(str(theta0)+" ; "+str(theta1))
 
         # update value function
-        V = bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
+        V = bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
         delta =  np.amax(np.abs(np.array(V)-np.array(V_old))) #np.linalg.norm(np.array(V) - np.array(V_old))
         iters=iters+1
         #print(str(V))
         if iters==5:
             print(tttt)
-    return theta0, theta1
+    return theta0, theta1, p_avail_avg
 
-def calculate_eta(theta0, theta1, dosage, availability, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
+def calculate_eta(theta0, theta1, dosage, p_avail_avg, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
     cur_dosage_eval0 = dosage_basis.evaluate(dosage*lamb)
     cur_dosage_eval1 = dosage_basis.evaluate(dosage*lamb+1)
 
-    p_avail_avg = np.mean(availability)
     thetabar=theta0*(1-p_avail_avg)+theta1*(p_avail_avg)
     val=np.sum(thetabar * (cur_dosage_eval0 - cur_dosage_eval1))
     etaHat=val*(1-psed)*(1-gamma) 
@@ -456,6 +457,8 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     post_sigma_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN, G_LEN + 2 * F_LEN))
 
     theta0, theta1=np.zeros(NBASIS),np.zeros(NBASIS)
+    eta=0
+    pAvailAvg=0
     for day in range(NDAYS):
         # loop for each decision time during the day
         print("DAY IS "+str(day))
@@ -473,7 +476,9 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             # If user is available
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
-                eta=calculate_eta(theta0, theta1, dosage, availability_matrix)
+                if ts >= 10:
+                    eta=calculate_eta(theta0, theta1, dosage, p_avail_avg)
+
                 print("\tAvailable: ETA is "+str(eta))
                 prob_fsb = calculate_post_prob(fs, post_mu, post_sigma, eta)
 
@@ -499,7 +504,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                     action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1])
         # update value functions
-        theta0,theta1 = calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
+        theta0,theta1,p_avail_avg = calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                     action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, ts + 1, dosage)
 
