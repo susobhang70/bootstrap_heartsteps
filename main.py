@@ -73,6 +73,8 @@ PSED=banditSpec.rx2("p.sed")[0]
 W=banditSpec.rx2("weight.est")[0]
 GAMMA=banditSpec.rx2("gamma")[0]
 etaInit=banditSpec.rx2("eta.init")
+alpha0_pmean = np.array(banditSpec.rx2("mu0"))
+alpha0_psd = np.array(banditSpec.rx2("Sigma0"))
 
 # %%
 # Load data
@@ -117,7 +119,6 @@ def determine_user_state(data, dosage, last_action):
 
     # calculating dosage
     newdosage = LAMBDA * dosage + (1 if (features["prior_anti"] == 1 or last_action == 1) else 0)
-    print(features["prior_anti"])
 
     # standardizing the dosage
     features["dosage"] = newdosage / 20.0
@@ -145,7 +146,8 @@ def load_priors():
     prior_sigma = linalg.block_diag(alpha_psd, beta_psd, beta_psd)
     prior_mu = np.concatenate([alpha_pmean, beta_pmean, beta_pmean])
 
-    return prior_sigma, prior_mu, sigma
+    #NOTE: alpha0 loaded in from bandit-spec-new in beginning
+    return prior_sigma, prior_mu, sigma, alpha0_pmean, alpha0_psd, alpha_pmean, alpha_psd
 
 # %%
 def get_priors_alpha_beta(post_mu, post_sigma):
@@ -251,7 +253,6 @@ def calculate_post_mu(prior_sigma, prior_mu, sigma, availability_matrix, reward_
 # %%
 def calculate_posterior(prior_sigma, prior_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix):
     '''Calculate the posterior distribution'''
-    
     # Calculate phi(s, a)
     Phi = calculate_phi(prob_matrix, action_matrix, fs_matrix, gs_matrix)
 
@@ -263,6 +264,22 @@ def calculate_posterior(prior_sigma, prior_mu, sigma, availability_matrix, prob_
     
     return post_mu, post_sigma
 
+# %%
+def calculate_posterior_baseline(indices, prior_sigma, prior_mu, sigma, availability_matrix, reward_matrix, gs_matrix):
+    if len(indices)==0:
+        return prior_mu, prior_sigma
+    else:
+        Phi=gs_matrix[indices,:]
+        Phi=np.reshape(Phi, (Phi.shape[0], Phi.shape[1], 1))
+        reward_matrix=reward_matrix[indices]
+        availability_mod=np.ones(reward_matrix.shape)
+
+        # Calculate posterior sigma
+        post_sigma = calculate_post_sigma(prior_sigma, sigma, availability_mod, Phi)
+
+        # Calculate posterior mu
+        post_mu = calculate_post_mu(prior_sigma, prior_mu, sigma, availability_mod, reward_matrix, Phi, post_sigma)
+        return post_mu, post_sigma
 
 # %%
 def select_action(p):
@@ -302,7 +319,7 @@ def get_state_probabilities(fs, gs, ts):
     return np.array(pZ)
 
 # %%
-def get_empirical_rewards_estimate(target_availability, target_action, fs, gs, pZ, post_mu, p_avail_avg, ts):
+def get_empirical_rewards_estimate(target_availability, target_action, fs, gs, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts):
     '''Calculate the empirical reward estimate'''
     rewardEstimates=[]
 
@@ -310,13 +327,16 @@ def get_empirical_rewards_estimate(target_availability, target_action, fs, gs, p
     alpha = post_mu[:G_LEN].flatten()
     beta = post_mu[-F_LEN:].flatten()
 
+    alpha_unavail=post_mu_alpha_unavail.flatten()
+    alpha_avail_action0=post_mu_alpha_avail_action0.flatten()
+
     # Compute r(x, a) i.e. r(target_avail, target_action)
     for i in range(len(dosage_grid)):
         fs[:,1]=np.repeat(dosage_grid[i], ts)#dosage_matrix[:fs.shape[0], i]
         gs[:,1]=np.repeat(dosage_grid[i], ts)#dosage_matrix[:fs.shape[0], i]
 
         # using target values instead of action[t] for speedup
-        fittedReward = gs @ alpha * pZ[:ts]  + target_availability * target_action * (fs @ beta * pZ[:ts])
+        fittedReward = target_availability*(gs @ alpha_avail_action0 * pZ[:ts]  + target_action * (fs @ beta * pZ[:ts]))+(1-target_availability)*(gs @ alpha_unavail)
         rewardEstimates.append(np.sum(fittedReward))
     return rewardEstimates
 
@@ -369,7 +389,7 @@ def bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, th
     return V
 
 # %%
-def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, ts, dosage, w=1, H1=1):#read in w and H1 from prior spec rda
+def calculate_value_functions(availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, ts, dosage):
     '''Calculate eta for a given dosage'''
     # estimate ECDF of Z
     pZ = get_state_probabilities(fs_matrix, gs_matrix, ts)
@@ -379,13 +399,13 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
     
     # get rewards vectors for each case: r_i(x,a)
     #r_0(x,0)
-    reward_available0_action0 = get_empirical_rewards_estimate(0, 0, fs_matrix, gs_matrix, pZ, post_mu, p_avail_avg, ts)
+    reward_available0_action0 = get_empirical_rewards_estimate(0, 0, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
 
     #r_1(x,0)
-    reward_available1_action0 = get_empirical_rewards_estimate(1, 0, fs_matrix, gs_matrix, pZ, post_mu, p_avail_avg, ts) 
+    reward_available1_action0 = get_empirical_rewards_estimate(1, 0, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
 
     #r_1(x,1)
-    reward_available1_action1 = get_empirical_rewards_estimate(1, 1, fs_matrix, gs_matrix, pZ, post_mu, p_avail_avg, ts) 
+    reward_available1_action1 = get_empirical_rewards_estimate(1, 1, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
 
     # get initial value estimates for V(dosage, i)
     V = [0] * (len(dosage_grid)*2) #init to 0's! have ordering be dosage_grid(0), dosage_grid(1). dosage_grid(i) means dosagegrid x availability=i
@@ -419,6 +439,7 @@ def calculate_eta(theta0, theta1, dosage, p_avail_avg, psed=PSED, w=W, gamma=GAM
     thetabar=theta0*(1-p_avail_avg)+theta1*(p_avail_avg)
     val=np.sum(thetabar * (cur_dosage_eval0 - cur_dosage_eval1))
     etaHat=val*(1-psed)*(1-gamma) 
+    #etaHat=val*(1-psed)*(gamma) 
     eta=w*etaHat+(1-w)*etaInit(float(dosage))[0]
     return eta
 
@@ -427,7 +448,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     '''Run the algorithm for each user and each bootstrap'''
 
     # Load priors
-    prior_sigma, prior_mu, sigma = load_priors()
+    prior_sigma, prior_mu, sigma, alpha0_pmean, alpha0_psd, alpha1_pmean, alpha1_psd = load_priors()
 
     # Initializing dosage to first dosage value (can be non-zero if user was already in the trial)
     dosage = data[0][6]
@@ -436,6 +457,14 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     post_sigma, post_mu = np.copy(prior_sigma), np.copy(prior_mu)
     post_mu=np.reshape(post_mu, (post_mu.shape[0], 1))
 
+    post_mu_alpha_avail_action0, post_sigma_alpha_avail_action0=np.copy(alpha1_pmean), np.copy(alpha1_psd)
+    post_mu_alpha_avail_action0=np.reshape(post_mu_alpha_avail_action0, (post_mu_alpha_avail_action0.shape[0],1))
+    prior_mu_alpha_avail_action0, prior_sigma_alpha_avail_action0=np.copy(alpha1_pmean), np.copy(alpha1_psd)
+
+    post_mu_alpha_unavail, post_sigma_alpha_unavail=np.copy(alpha0_pmean), np.copy(alpha0_psd)
+    post_mu_alpha_unavail=np.reshape(post_mu_alpha_unavail, (post_mu_alpha_unavail.shape[0],1))
+    prior_mu_alpha_unavail, prior_sigma_alpha_unavail=np.copy(alpha0_pmean), np.copy(alpha0_psd)
+
     # DS to store availability, probabilities, features, actions, posteriors and rewards
     availability_matrix = np.zeros((NDAYS * NTIMES))
     prob_matrix = np.zeros((NDAYS * NTIMES))
@@ -443,8 +472,18 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     action_matrix = np.zeros((NDAYS * NTIMES))
     fs_matrix = np.zeros((NDAYS * NTIMES, F_LEN))
     gs_matrix = np.zeros((NDAYS * NTIMES, G_LEN))
+
+    #alpha2 in peng's
     post_mu_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN))
     post_sigma_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN, G_LEN + 2 * F_LEN))
+
+    #alpha0 in peng's
+    post_mu_alpha_unavail_matrix = np.zeros((NDAYS * NTIMES, G_LEN))
+    post_sigma_alpha_unavail_matrix = np.zeros((NDAYS * NTIMES, G_LEN , G_LEN))
+
+    #alpha1 in peng's
+    post_mu_alpha_avail_action0_matrix = np.zeros((NDAYS * NTIMES, G_LEN ))
+    post_sigma_alpha_avail_action0_matrix = np.zeros((NDAYS * NTIMES, G_LEN , G_LEN ))
 
     theta0, theta1=np.zeros(NBASIS),np.zeros(NBASIS)
     eta=0
@@ -487,17 +526,35 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             gs_matrix[ts] = gs
             post_mu_matrix[ts] = post_mu[:,0]
             post_sigma_matrix[ts] = post_sigma
+
+            post_mu_alpha_unavail_matrix[ts]=post_mu_alpha_unavail[:,0]
+            post_sigma_alpha_unavail_matrix[ts]=post_sigma_alpha_unavail
+
+            post_mu_alpha_avail_action0_matrix[ts]=post_mu_alpha_avail_action0[:,0]
+            post_sigma_alpha_avail_action0_matrix[ts]=post_sigma_alpha_avail_action0
             
         # Update posterior
+        #again like alpha2 in pengs
         post_mu, post_sigma = calculate_posterior(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                     action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1])
+
+        #again like alpha0 in pengs
+        indices=list(np.where(availability_matrix[:ts+1]==0)[0])
+        post_mu_alpha_unavail, post_sigma_alpha_unavail= calculate_posterior_baseline(indices, prior_sigma_alpha_unavail, prior_mu_alpha_unavail, sigma, availability_matrix[:ts + 1], reward_matrix[:ts + 1], gs_matrix[:ts + 1])
+
+        #again like alpha1 in pengs
+        indices=list(np.intersect1d(np.where(availability_matrix[:ts+1]==1), np.where(action_matrix[:ts+1]==0)))
+        post_mu_alpha_avail_action0, post_sigma_alpha_avail_action0= calculate_posterior_baseline(indices,prior_sigma_alpha_avail_action0, prior_mu_alpha_avail_action0, sigma, availability_matrix[:ts + 1], reward_matrix[:ts + 1], gs_matrix[:ts + 1])
+
         # update value functions
-        theta0,theta1,p_avail_avg = calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix[:ts + 1], 
+        theta0,theta1,p_avail_avg = calculate_value_functions(availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
-                                                    action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, ts + 1, dosage)
+                                                    action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, ts + 1, dosage)
 
     result = {"availability": availability_matrix, "prob": prob_matrix, "action": action_matrix, "reward": reward_matrix,
+            "post_mu_alpha_unavail": post_mu_alpha_unavail_matrix, "post_sigma_alpha_unavail": post_sigma_alpha_unavail_matrix,
+            "post_mu_alpha_avail_action0": post_mu_alpha_avail_action0_matrix, "post_sigma_alpha_avail_action0": post_sigma_alpha_avail_action0_matrix,
             "fs": fs_matrix, "gs": gs_matrix, "post_mu": post_mu_matrix, "post_sigma": post_sigma_matrix}
     
     # Save results
