@@ -325,30 +325,22 @@ def get_value_summand(dosage_index, availability, pavail, theta0, theta1, psed=P
     summand = 0
     basis_representation0=next_dosage_eval0[dosage_index,:]
     basis_representation1=next_dosage_eval1[dosage_index,:]
-    if availability == 0:
-        # case: x'=\lambda*dosage+1,i'=1
-        V_1_1=basis_representation1 @ theta1
-        summand = (psed)*pavail*V_1_1 
 
-        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
-        V_1_0=basis_representation1 @ theta0
-        summand = summand+(psed)*(1-pavail)*V_1_0 
+    # case: x'=\lambda*dosage+1,i'=1
+    V_1_1=basis_representation1 @ theta1
+    summand = (psed)*pavail*V_1_1 
+
+    # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
+    V_1_0=basis_representation1 @ theta0
+    summand = summand+(psed)*(1-pavail)*V_1_0 
         
-        # case: x'=\lambda*dosage,i'=1
-        V_0_1=basis_representation0 @ theta1
-        summand = summand+(1-psed)*pavail* V_0_1
+    # case: x'=\lambda*dosage,i'=1
+    V_0_1=basis_representation0 @ theta1
+    summand = summand+(1-psed)*pavail* V_0_1
 
-        # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
-        V_0_0=basis_representation0 @ theta0
-        summand = summand+(1-psed)*(1-pavail)*V_0_0
-    else:#avail==1
-        # case: x'=\lambda*dosage+1,i'=1
-        V_1_1=basis_representation1 @ theta1
-        summand = pavail*V_1_1
-
-        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
-        V_1_0=basis_representation1 @ theta0
-        summand = summand+(1-pavail)*V_1_0
+    # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
+    V_0_0=basis_representation0 @ theta0
+    summand = summand+(1-psed)*(1-pavail)*V_0_0
     return summand
 
 # %%
@@ -365,18 +357,18 @@ def bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, pos
 
         #bellman update on avail0 case
         r00 = reward_available0_action0[i]
-        V[i] = r00 + get_value_summand(i, 0, p_avail_avg, theta0, theta1)
-        print(get_value_summand(i, 0, p_avail_avg, theta0, theta1))
+        V[i] = r00 + gamma*get_value_summand(i, 0, p_avail_avg, theta0, theta1)
+        print(V[i])
 
         #bellman update on avail1 case
         r10 = reward_available1_action0[i]
-        v0 = r10 + get_value_summand(i, 0, p_avail_avg, theta0,theta1)
-        print(get_value_summand(i, 0, p_avail_avg, theta0,theta1))
+        v0 = r10 + gamma*get_value_summand(i, 0, p_avail_avg, theta0,theta1)
+        print(v0)
 
         r11 = reward_available1_action1[i]
-        v1  = r11 + get_value_summand(i, 1, p_avail_avg, theta0, theta1)
+        v1  = r11 + gamma*get_value_summand(i, 1, p_avail_avg, theta0, theta1)
         v = max(v1, v0)
-        print(get_value_summand(i, 1, p_avail_avg, theta0,theta1))
+        print(v)
         V[i + len(dosage_grid)] = v
     return V
 
@@ -423,7 +415,7 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
         delta =  np.amax(np.abs(np.array(V)-np.array(V_old))) #np.linalg.norm(np.array(V) - np.array(V_old))
         iters=iters+1
         #print(str(V))
-        if iters==1:
+        if iters==5:
             print(tttt)
     return theta0, theta1
 
