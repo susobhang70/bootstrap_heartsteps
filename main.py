@@ -62,8 +62,8 @@ dosage_matrix=dosage_matrix.T
     
 # %%
 # partial dosage ols solutions used in eta proxy update (in particular, where value updates are done via function approximation)
-dosage_OLS_soln=np.linalg.inv(np.matmul(dosage_eval.T,dosage_eval))#(X'X)^{-1}#201 x 201
-dosage_OLS_soln=np.matmul(dosage_OLS_soln, dosage_eval.T)#(X'X)^{-1}X'# 201 x 50
+dosage_OLS_soln=np.linalg.inv(np.matmul(dosage_eval,dosage_eval.T))#(X'X)^{-1}#50 x 50
+dosage_OLS_soln=np.matmul(dosage_OLS_soln, dosage_eval)#(X'X)^{-1}X'# 50 x 201
 
 # %%
 # load in prior data results like H1 (eta.init), w, and gamma tuned by peng
@@ -100,7 +100,7 @@ def load_initial_run(residual_path, baseline_thetas_path, baseline):
     return residual_matrix, baseline_thetas
 
 # %%
-def determine_user_state(data, dosage):
+def determine_user_state(data, dosage, last_action):
     '''Determine the state of each user at each time point'''
     availability = data[2]
 
@@ -116,7 +116,8 @@ def determine_user_state(data, dosage):
     features["prior_anti"] = data[14]
 
     # calculating dosage
-    newdosage = LAMBDA * dosage + features["prior_anti"]
+    newdosage = LAMBDA * dosage + (1 if (features["prior_anti"] == 1 or last_action == 1) else 0)
+    print(features["prior_anti"])
 
     # standardizing the dosage
     features["dosage"] = newdosage / 20.0
@@ -350,25 +351,20 @@ def bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, th
 
     # now go through each state and bellman update it
     # each V[i+()] corresponds to formula max_a [r_i(x,a) + value_summand]
-    print("value estimates in bellman backup")
     for i in range(len(dosage_grid)):
         dosage=dosage_grid[i]
-        print("dosage "+str(dosage))
 
         #bellman update on avail0 case
         r00 = reward_available0_action0[i]
         V[i] = r00 + gamma*get_value_summand(i, 0, p_avail_avg, theta0, theta1)
-        print(V[i])
 
         #bellman update on avail1 case
         r10 = reward_available1_action0[i]
         v0 = r10 + gamma*get_value_summand(i, 0, p_avail_avg, theta0,theta1)
-        print(v0)
 
         r11 = reward_available1_action1[i]
         v1  = r11 + gamma*get_value_summand(i, 1, p_avail_avg, theta0, theta1)
         v = max(v1, v0)
-        print(v)
         V[i + len(dosage_grid)] = v
     return V
 
@@ -407,18 +403,13 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
         V_old = V
 
         # get OLS Estimate
-        theta0=np.matmul(V[0:len(dosage_grid)], dosage_OLS_soln)
-        theta1=np.matmul(V[len(dosage_grid):(2*len(dosage_grid))], dosage_OLS_soln)
-
-        #print(str(theta0)+" ; "+str(theta1))
+        theta0=np.matmul(dosage_OLS_soln, V[0:len(dosage_grid)])
+        theta1=np.matmul(dosage_OLS_soln, V[len(dosage_grid):(2*len(dosage_grid))])
 
         # update value function
         V = bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
         delta =  np.amax(np.abs(np.array(V)-np.array(V_old))) #np.linalg.norm(np.array(V) - np.array(V_old))
         iters=iters+1
-        #print(str(V))
-        if iters==5:
-            print(tttt)
     return theta0, theta1, p_avail_avg
 
 def calculate_eta(theta0, theta1, dosage, p_avail_avg, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
@@ -428,7 +419,6 @@ def calculate_eta(theta0, theta1, dosage, p_avail_avg, psed=PSED, w=W, gamma=GAM
     thetabar=theta0*(1-p_avail_avg)+theta1*(p_avail_avg)
     val=np.sum(thetabar * (cur_dosage_eval0 - cur_dosage_eval1))
     etaHat=val*(1-psed)*(1-gamma) 
-
     eta=w*etaHat+(1-w)*etaInit(float(dosage))[0]
     return eta
 
@@ -458,7 +448,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
 
     theta0, theta1=np.zeros(NBASIS),np.zeros(NBASIS)
     eta=0
-    pAvailAvg=0
+    p_avail_avg=0
     for day in range(NDAYS):
         # loop for each decision time during the day
         print("DAY IS "+str(day))
@@ -468,7 +458,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             ts = (day) * 5 + time
             
             # State of the user at time ts
-            availability, fs, gs, dosage, reward = determine_user_state(data[ts], dosage)
+            availability, fs, gs, dosage, reward = determine_user_state(data[ts], dosage, action_matrix[ts-1])
 
             # Save user's availability
             availability_matrix[ts] = availability
@@ -476,8 +466,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             # If user is available
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
-                if ts >= 10:
-                    eta=calculate_eta(theta0, theta1, dosage, p_avail_avg)
+                eta=calculate_eta(theta0, theta1, dosage, p_avail_avg)
 
                 print("\tAvailable: ETA is "+str(eta))
                 prob_fsb = calculate_post_prob(fs, post_mu, post_sigma, eta)
