@@ -321,10 +321,10 @@ def get_empirical_rewards_estimate(target_availability, target_action, fs, gs, p
 
 # %%
 # gets the \sum_{x', i'} \tau(x' \mid x, a)*f_pAvail(i')*V(x',i')
-def get_value_summand(dosage, availability, pavail, theta0, theta1, psed=PSED, lamb=LAMBDA):
+def get_value_summand(dosage_index, availability, pavail, theta0, theta1, psed=PSED, lamb=LAMBDA):
     summand = 0
-    basis_representation0=dosage_basis.evaluate(dosage*lamb)[:,0,0]
-    basis_representation1=dosage_basis.evaluate(dosage*lamb+1)[:,0,0]
+    basis_representation0=next_dosage_eval0[dosage_index,:]
+    basis_representation1=next_dosage_eval1[dosage_index,:]
     if availability == 0:
         # case: x'=\lambda*dosage+1,i'=1
         V_1_1=basis_representation1 @ theta1
@@ -358,20 +358,25 @@ def bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, pos
 
     # now go through each state and bellman update it
     # each V[i+()] corresponds to formula max_a [r_i(x,a) + value_summand]
+    print("value estimates in bellman backup")
     for i in range(len(dosage_grid)):
         dosage=dosage_grid[i]
+        print("dosage "+str(dosage))
 
         #bellman update on avail0 case
         r00 = reward_available0_action0[i]
-        V[i] = r00 + get_value_summand(dosage, 0, p_avail_avg, theta0, theta1)
+        V[i] = r00 + get_value_summand(i, 0, p_avail_avg, theta0, theta1)
+        print(get_value_summand(i, 0, p_avail_avg, theta0, theta1))
 
         #bellman update on avail1 case
         r10 = reward_available1_action0[i]
-        v0 = r10 + get_value_summand(dosage, 0, p_avail_avg, theta0,theta1)
+        v0 = r10 + get_value_summand(i, 0, p_avail_avg, theta0,theta1)
+        print(get_value_summand(i, 0, p_avail_avg, theta0,theta1))
 
         r11 = reward_available1_action1[i]
-        v1  = r11 + get_value_summand(dosage, 1, p_avail_avg, theta0, theta1)
+        v1  = r11 + get_value_summand(i, 1, p_avail_avg, theta0, theta1)
         v = max(v1, v0)
+        print(get_value_summand(i, 1, p_avail_avg, theta0,theta1))
         V[i + len(dosage_grid)] = v
     return V
 
@@ -409,12 +414,15 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
         theta0=np.matmul(V[0:len(dosage_grid)], dosage_OLS_soln)
         theta1=np.matmul(V[len(dosage_grid):(2*len(dosage_grid))], dosage_OLS_soln)
 
-        print(str(theta0)+" ; "+str(theta1))
+        #print(str(theta0)+" ; "+str(theta1))
 
         # update value function
         V = bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
         delta = np.linalg.norm(np.array(V) - np.array(V_old))
         iters=iters+1
+        print(str(V))
+        if iters==1:
+            print(tttt)
     return theta0, theta1
 
 def calculate_eta(theta0, theta1, dosage, availability, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
