@@ -409,7 +409,7 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
         theta0=np.matmul(V[0:len(dosage_grid)], dosage_OLS_soln)
         theta1=np.matmul(V[len(dosage_grid):(2*len(dosage_grid))], dosage_OLS_soln)
 
-        #print(str(theta0)+" ; "+str(theta1))
+        print(str(theta0)+" ; "+str(theta1))
 
         # update value function
         V = bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
@@ -426,7 +426,7 @@ def calculate_eta(theta0, theta1, dosage, availability, psed=PSED, w=W, gamma=GA
     val=np.sum(thetabar * (cur_dosage_eval0 - cur_dosage_eval1))
     etaHat=val*(1-psed)*(1-gamma) 
 
-    eta=w*etaHat+(1-w)*etaInit(dosage)[0]
+    eta=w*etaHat+(1-w)*etaInit(float(dosage))[0]
     return eta
 
 # %%
@@ -453,10 +453,10 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     post_mu_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN))
     post_sigma_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN, G_LEN + 2 * F_LEN))
 
-    theta0, theta1=np.zeros(50),np.zeros(50)
-
+    theta0, theta1=np.zeros(NBASIS),np.zeros(NBASIS)
     for day in range(NDAYS):
         # loop for each decision time during the day
+        print("DAY IS "+str(day))
         for time in range(NTIMES):
 
             # Get the current timeslot
@@ -468,20 +468,18 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             # Save user's availability
             availability_matrix[ts] = availability
 
-            print("T is "+str(ts))
-            
             # If user is available
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
                 eta=calculate_eta(theta0, theta1, dosage, availability_matrix)
-                print("ETA is "+str(eta))
+                print("\tAvailable: ETA is "+str(eta))
                 prob_fsb = calculate_post_prob(fs, post_mu, post_sigma, eta)
 
                 # Sample action with probability prob_fsb from bernoulli distribution
                 action = select_action(prob_fsb)
 
                 # Bayesian LR to estimate reward
-                reward = calculate_reward(ts, fs, gs, action, prob_fsb, baseline_theta, residual_matrix, user_specific)
+                reward = calculate_reward(ts, fs, gs, action, prob_fsb, baseline_theta, residual_matrix)
 
                 # Save probability, features, action and reward
                 prob_matrix[ts] = prob_fsb
