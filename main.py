@@ -404,7 +404,9 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
     theta0=np.zeros(NBASIS)
     theta1=np.zeros(NBASIS)
 
-    epsilon = 1e-8
+    V = bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
+
+    epsilon = 1e-2
     delta = 10
     iters=0
     while delta > epsilon and iters < MAX_ITERS:
@@ -418,9 +420,9 @@ def calculate_value_functions(prior_sigma, prior_mu, sigma, availability_matrix,
 
         # update value function
         V = bellman_backup(availability_matrix, action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
-        delta = np.linalg.norm(np.array(V) - np.array(V_old))
+        delta =  np.amax(np.abs(np.array(V)-np.array(V_old))) #np.linalg.norm(np.array(V) - np.array(V_old))
         iters=iters+1
-        print(str(V))
+        #print(str(V))
         if iters==1:
             print(tttt)
     return theta0, theta1
