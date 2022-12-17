@@ -439,8 +439,6 @@ def calculate_value_functions(availability_matrix, prob_matrix, reward_matrix, a
 
         # update value function
         V = bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
-        #print("V0 is "+str(V[0:len(dosage_grid)]))
-        #print("V1 is "+str(V[len(dosage_grid):]))
         delta =  np.amax(np.abs(np.array(V)-np.array(V_old))) #np.linalg.norm(np.array(V) - np.array(V_old))
         iters=iters+1
     return theta0, theta1, p_avail_avg
@@ -547,7 +545,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     p_avail_avg=0
     for day in range(NDAYS):
         # loop for each decision time during the day
-        print("DAY IS "+str(day))
+        #print("DAY IS "+str(day))
         for time in range(NTIMES):
 
             # Get the current timeslot
@@ -562,9 +560,9 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             # If user is available
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
-                eta, aa,bb, bbb,cc,dd=calculate_eta(theta0, theta1, dosage, p_avail_avg)
+                eta, aa,bb, cc,dd=calculate_eta(theta0, theta1, dosage, p_avail_avg)
 
-                print("\tAvailable: ETA is "+str(eta)+" . Dosage: "+str(dosage))
+                #print("\tAvailable: ETA is "+str(eta)+" . Dosage: "+str(dosage))
                 prob_fsb = calculate_post_prob(fs, post_mu, post_sigma, eta)
 
                 # Sample action with probability prob_fsb from bernoulli distribution
@@ -610,7 +608,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
                                                     action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, ts + 1, dosage)
         
 
-        if day==10:
+        if day% 10==0:
             dosage_grid_sub = np.arange(MIN_DOSAGE+.1, MAX_DOSAGE, .1)
             yHat=[]
             yInit=[]
@@ -625,8 +623,8 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
                 v1s.append(v1)
                 xs.append(d)
 
-            print("eta Hat")
-            print(yHat)
+            beta=post_mu[-F_LEN:].flatten()
+            print("DAY IS "+str(day)+" , eta Hat var: "+str(np.var(yHat))+". posteriors: "+str(beta))
             #print("eta Init")
             #print(yInit)
             #print("v1")
@@ -648,10 +646,8 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         v1s.append(v1)
         xs.append(d)
 
-    print("eta Hat")
-    print(yHat)
-    print("eta Hat1")
-    print(yHat1)
+    #print("eta Hat")
+    #print(yHat)
     #print("eta Init")
     #print(yInit)
     #print("v1")
