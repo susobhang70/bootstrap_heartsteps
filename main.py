@@ -330,38 +330,50 @@ def get_empirical_rewards_estimate(target_availability, target_action, fs, gs, p
     alpha_unavail=post_mu_alpha_unavail.flatten()
     alpha_avail_action0=post_mu_alpha_avail_action0.flatten()
 
-    # Compute r(x, a) i.e. r(target_avail, target_action)
+    # Compute r(x, a) i.e. r_{target_availability}(x, target_action)
     for i in range(len(dosage_grid)):
-        fs[:,1]=np.repeat(dosage_grid[i], ts)#dosage_matrix[:fs.shape[0], i]
-        gs[:,1]=np.repeat(dosage_grid[i], ts)#dosage_matrix[:fs.shape[0], i]
+        fs[:,1]=np.repeat(dosage_grid[i]/20.0, ts)#dosage_matrix[:fs.shape[0], i]
+        gs[:,1]=np.repeat(dosage_grid[i]/20.0, ts)#dosage_matrix[:fs.shape[0], i]
 
         # using target values instead of action[t] for speedup
-        fittedReward = target_availability*(gs @ alpha_avail_action0 * pZ[:ts]  + target_action * (fs @ beta * pZ[:ts]))+(1-target_availability)*(gs @ alpha_unavail)
+        fittedReward = target_availability*(gs @ alpha_avail_action0 * pZ[:ts]  + target_action * (fs @ beta * pZ[:ts]))+(1-target_availability)*(gs @ alpha_unavail * pZ[:ts])
         rewardEstimates.append(np.sum(fittedReward))
     return rewardEstimates
 
 # %%
 # gets the \sum_{x', i'} \tau(x' \mid x, a)*f_pAvail(i')*V(x',i')
-def get_value_summand(dosage_index, availability, pavail, theta0, theta1, psed=PSED, lamb=LAMBDA):
+def get_value_summand(dosage_index, action, pavail, theta0, theta1, psed=PSED, lamb=LAMBDA):
     summand = 0
     basis_representation0=next_dosage_eval0[dosage_index,:]
     basis_representation1=next_dosage_eval1[dosage_index,:]
 
-    # case: x'=\lambda*dosage+1,i'=1
-    V_1_1=basis_representation1 @ theta1
-    summand = (psed)*pavail*V_1_1 
+    #when action==0
+    if action==0:
+        # case: x'=\lambda*dosage+1,i'=1
+        V_1_1=basis_representation1 @ theta1
+        summand = (psed)*pavail*V_1_1 
 
-    # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
-    V_1_0=basis_representation1 @ theta0
-    summand = summand+(psed)*(1-pavail)*V_1_0 
-        
-    # case: x'=\lambda*dosage,i'=1
-    V_0_1=basis_representation0 @ theta1
-    summand = summand+(1-psed)*pavail* V_0_1
+        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
+        V_1_0=basis_representation1 @ theta0
+        summand = summand+(psed)*(1-pavail)*V_1_0 
+            
+        # case: x'=\lambda*dosage,i'=1
+        V_0_1=basis_representation0 @ theta1
+        summand = summand+(1-psed)*pavail* V_0_1
 
-    # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
-    V_0_0=basis_representation0 @ theta0
-    summand = summand+(1-psed)*(1-pavail)*V_0_0
+        # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
+        V_0_0=basis_representation0 @ theta0
+        summand = summand+(1-psed)*(1-pavail)*V_0_0
+
+    # when action==1
+    else:
+        # case: x'=\lambda*dosage+1,i'=1
+        V_1_1=basis_representation1 @ theta1
+        summand = pavail*V_1_1 
+
+        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
+        V_1_0=basis_representation1 @ theta0
+        summand = summand+(1-pavail)*V_1_0 
     return summand
 
 # %%
@@ -400,12 +412,15 @@ def calculate_value_functions(availability_matrix, prob_matrix, reward_matrix, a
     # get rewards vectors for each case: r_i(x,a)
     #r_0(x,0)
     reward_available0_action0 = get_empirical_rewards_estimate(0, 0, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
+    #print(reward_available0_action0)
 
     #r_1(x,0)
     reward_available1_action0 = get_empirical_rewards_estimate(1, 0, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
+    #print(reward_available1_action0)
 
     #r_1(x,1)
     reward_available1_action1 = get_empirical_rewards_estimate(1, 1, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
+    #print(reward_available1_action1)
 
     # get initial value estimates for V(dosage, i)
     V = [0] * (len(dosage_grid)*2) #init to 0's! have ordering be dosage_grid(0), dosage_grid(1). dosage_grid(i) means dosagegrid x availability=i
@@ -438,10 +453,12 @@ def calculate_eta(theta0, theta1, dosage, p_avail_avg, psed=PSED, w=W, gamma=GAM
 
     thetabar=theta0*(1-p_avail_avg)+theta1*(p_avail_avg)
     val=np.sum(thetabar * (cur_dosage_eval0 - cur_dosage_eval1))
-    etaHat=val*(1-psed)*(1-gamma) 
-    #etaHat=val*(1-psed)*(gamma) 
+    #etaHat=val*(1-psed)#*(1-gamma)
+    etaHat=val*(1-psed)*(gamma) 
     eta=w*etaHat+(1-w)*etaInit(float(dosage))[0]
-    return eta
+    v0=np.sum(thetabar * cur_dosage_eval0)
+    v1=np.sum(thetabar * cur_dosage_eval1)
+    return eta, etaHat, etaInit(float(dosage))[0], v0, v1
 
 # %%
 def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline_theta, output_dir, log_dir):
@@ -505,9 +522,9 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             # If user is available
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
-                eta=calculate_eta(theta0, theta1, dosage, p_avail_avg)
+                eta, aa,bb,cc,dd=calculate_eta(theta0, theta1, dosage, p_avail_avg)
 
-                print("\tAvailable: ETA is "+str(eta))
+                print("\tAvailable: ETA is "+str(eta)+" . Dosage: "+str(dosage))
                 prob_fsb = calculate_post_prob(fs, post_mu, post_sigma, eta)
 
                 # Sample action with probability prob_fsb from bernoulli distribution
@@ -527,11 +544,11 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             post_mu_matrix[ts] = post_mu[:,0]
             post_sigma_matrix[ts] = post_sigma
 
-            post_mu_alpha_unavail_matrix[ts]=post_mu_alpha_unavail[:,0]
-            post_sigma_alpha_unavail_matrix[ts]=post_sigma_alpha_unavail
+#            post_mu_alpha_unavail_matrix[ts]=post_mu_alpha_unavail[:,0]
+#            post_sigma_alpha_unavail_matrix[ts]=post_sigma_alpha_unavail
 
-            post_mu_alpha_avail_action0_matrix[ts]=post_mu_alpha_avail_action0[:,0]
-            post_sigma_alpha_avail_action0_matrix[ts]=post_sigma_alpha_avail_action0
+#            post_mu_alpha_avail_action0_matrix[ts]=post_mu_alpha_avail_action0[:,0]
+#            post_sigma_alpha_avail_action0_matrix[ts]=post_sigma_alpha_avail_action0
             
         # Update posterior
         #again like alpha2 in pengs
@@ -551,6 +568,60 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         theta0,theta1,p_avail_avg = calculate_value_functions(availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                     action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, ts + 1, dosage)
+
+        if day==10:
+            dosage_grid_sub = np.arange(MIN_DOSAGE+.1, MAX_DOSAGE, .1)
+            yHat=[]
+            yInit=[]
+            v0s=[]
+            v1s=[]
+            xs=[]
+            for d in dosage_grid_sub:
+                eta, etaHat,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
+                yHat.append(etaHat)
+                yInit.append(etaInit)
+                v0s.append(v0)
+                v1s.append(v1)
+                xs.append(d)
+
+            #print("eta Hat")
+            #print(yHat)
+            #print("eta Init")
+            #print(yInit)
+            #print("v1")
+            #print(v1s)
+            #print("v0")
+            #print(v0s)
+
+    dosage_grid_sub = np.arange(MIN_DOSAGE+.1, MAX_DOSAGE, .1)
+    yHat=[]
+    yInit=[]
+    v0s=[]
+    v1s=[]
+    xs=[]
+    for d in dosage_grid_sub:
+        eta, etaHat,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
+        yHat.append(etaHat)
+        yInit.append(etaInit)
+        v0s.append(v0)
+        v1s.append(v1)
+        xs.append(d)
+
+    #print("eta Hat")
+    #print(yHat)
+    #print("eta Init")
+    #print(yInit)
+    #print("v1")
+    #print(v1s)
+    #print("v0")
+    #print(v0s)
+    #import matplotlib.pyplot as plt
+
+    ## plot lines
+    #plt.plot(xs, v1s, label = "v 1")
+    #plt.plot(xs, v0s, label = "v 0")
+    #plt.show()
+    #print(ggg)
 
     result = {"availability": availability_matrix, "prob": prob_matrix, "action": action_matrix, "reward": reward_matrix,
             "post_mu_alpha_unavail": post_mu_alpha_unavail_matrix, "post_sigma_alpha_unavail": post_sigma_alpha_unavail_matrix,
