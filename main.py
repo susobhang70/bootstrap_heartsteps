@@ -346,7 +346,6 @@ def get_value_summand(dosage_index, action, pavail, theta0, theta1, psed=PSED, l
     summand = 0
     basis_representation0=next_dosage_eval0[dosage_index,:]
     basis_representation1=next_dosage_eval1[dosage_index,:]
-
     #when action==0
     if action==0:
         # case: x'=\lambda*dosage+1,i'=1
@@ -412,15 +411,12 @@ def calculate_value_functions(availability_matrix, prob_matrix, reward_matrix, a
     # get rewards vectors for each case: r_i(x,a)
     #r_0(x,0)
     reward_available0_action0 = get_empirical_rewards_estimate(0, 0, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
-    #print(reward_available0_action0)
 
     #r_1(x,0)
     reward_available1_action0 = get_empirical_rewards_estimate(1, 0, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
-    #print(reward_available1_action0)
 
     #r_1(x,1)
     reward_available1_action1 = get_empirical_rewards_estimate(1, 1, fs_matrix, gs_matrix, pZ, post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, p_avail_avg, ts)
-    #print(reward_available1_action1)
 
     # get initial value estimates for V(dosage, i)
     V = [0] * (len(dosage_grid)*2) #init to 0's! have ordering be dosage_grid(0), dosage_grid(1). dosage_grid(i) means dosagegrid x availability=i
@@ -443,22 +439,65 @@ def calculate_value_functions(availability_matrix, prob_matrix, reward_matrix, a
 
         # update value function
         V = bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, theta0, theta1, reward_available0_action0, reward_available1_action0, reward_available1_action1)
+        #print("V0 is "+str(V[0:len(dosage_grid)]))
+        #print("V1 is "+str(V[len(dosage_grid):]))
         delta =  np.amax(np.abs(np.array(V)-np.array(V_old))) #np.linalg.norm(np.array(V) - np.array(V_old))
         iters=iters+1
     return theta0, theta1, p_avail_avg
+
+def value_summand_H(basis_representation1, basis_representation0, theta0, theta1, pavail, action, psed=PSED):
+    summand = 0
+    #when action==0
+    if action==0:
+        # case: x'=\lambda*dosage+1,i'=1
+        V_1_1=basis_representation1 @ theta1
+        summand = (psed)*pavail*V_1_1 
+
+        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
+        V_1_0=basis_representation1 @ theta0
+        summand = summand+(psed)*(1-pavail)*V_1_0 
+            
+        # case: x'=\lambda*dosage,i'=1
+        V_0_1=basis_representation0 @ theta1
+        summand = summand+(1-psed)*pavail* V_0_1
+
+        # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
+        V_0_0=basis_representation0 @ theta0
+        summand = summand+(1-psed)*(1-pavail)*V_0_0
+
+    # when action==1
+    else:
+        # case: x'=\lambda*dosage+1,i'=1
+        V_1_1=basis_representation1 @ theta1
+        summand = pavail*V_1_1 
+
+        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
+        V_1_0=basis_representation1 @ theta0
+        summand = summand+(1-pavail)*V_1_0 
+    return summand
 
 def calculate_eta(theta0, theta1, dosage, p_avail_avg, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
     cur_dosage_eval0 = dosage_basis.evaluate(dosage*lamb)
     cur_dosage_eval1 = dosage_basis.evaluate(dosage*lamb+1)
 
+    #calculate etaHat stpuidly
+    Hx1=value_summand_H(cur_dosage_eval1[:,0,0], cur_dosage_eval0[:,0,0], theta0, theta1, p_avail_avg,1)
+    Hx0=value_summand_H(cur_dosage_eval1[:,0,0], cur_dosage_eval0[:,0,0], theta0, theta1, p_avail_avg,0)
+    etaHat1=Hx0-Hx1
+
+    #calculate etaHat using peng's
     thetabar=theta0*(1-p_avail_avg)+theta1*(p_avail_avg)
+    t=(thetabar * (cur_dosage_eval0 - cur_dosage_eval1).squeeze().T)
     val=np.sum(thetabar * (cur_dosage_eval0 - cur_dosage_eval1))
-    #etaHat=val*(1-psed)#*(1-gamma)
+    val=np.sum(t)
     etaHat=val*(1-psed)*(gamma) 
     eta=w*etaHat+(1-w)*etaInit(float(dosage))[0]
-    v0=np.sum(thetabar * cur_dosage_eval0)
-    v1=np.sum(thetabar * cur_dosage_eval1)
-    return eta, etaHat, etaInit(float(dosage))[0], v0, v1
+
+    v0=np.sum(thetabar * cur_dosage_eval0.squeeze().T)
+    v1=np.sum(thetabar * cur_dosage_eval1.squeeze().T)
+    #import pdb
+    #pdb.set_trace()
+    return eta, etaHat, etaHat1, etaInit(float(dosage))[0], v0, v1
 
 # %%
 def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline_theta, output_dir, log_dir):
@@ -522,7 +561,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             # If user is available
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
-                eta, aa,bb,cc,dd=calculate_eta(theta0, theta1, dosage, p_avail_avg)
+                eta, aa,bb, bbb,cc,dd=calculate_eta(theta0, theta1, dosage, p_avail_avg)
 
                 print("\tAvailable: ETA is "+str(eta)+" . Dosage: "+str(dosage))
                 prob_fsb = calculate_post_prob(fs, post_mu, post_sigma, eta)
@@ -568,24 +607,29 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         theta0,theta1,p_avail_avg = calculate_value_functions(availability_matrix[:ts + 1], 
                                                     prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                     action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_mu, post_mu_alpha_unavail, post_mu_alpha_avail_action0, ts + 1, dosage)
+        
 
         if day==10:
             dosage_grid_sub = np.arange(MIN_DOSAGE+.1, MAX_DOSAGE, .1)
             yHat=[]
+            yHat1=[]
             yInit=[]
             v0s=[]
             v1s=[]
             xs=[]
             for d in dosage_grid_sub:
-                eta, etaHat,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
+                eta, etaHat,etaHat1,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
                 yHat.append(etaHat)
+                yHat1.append(etaHat1)
                 yInit.append(etaInit)
                 v0s.append(v0)
                 v1s.append(v1)
                 xs.append(d)
 
-            #print("eta Hat")
-            #print(yHat)
+            print("eta Hat")
+            print(yHat)
+            print("eta Hat1")
+            print(yHat1)
             #print("eta Init")
             #print(yInit)
             #print("v1")
@@ -595,20 +639,24 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
 
     dosage_grid_sub = np.arange(MIN_DOSAGE+.1, MAX_DOSAGE, .1)
     yHat=[]
+    yHat1=[]
     yInit=[]
     v0s=[]
     v1s=[]
     xs=[]
     for d in dosage_grid_sub:
-        eta, etaHat,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
+        eta, etaHat,etaHat1,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
+        yHat1.append(etaHat1)
         yHat.append(etaHat)
         yInit.append(etaInit)
         v0s.append(v0)
         v1s.append(v1)
         xs.append(d)
 
-    #print("eta Hat")
-    #print(yHat)
+    print("eta Hat")
+    print(yHat)
+    print("eta Hat1")
+    print(yHat1)
     #print("eta Init")
     #print(yInit)
     #print("v1")
