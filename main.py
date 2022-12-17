@@ -481,9 +481,10 @@ def calculate_eta(theta0, theta1, dosage, p_avail_avg, psed=PSED, w=W, gamma=GAM
     cur_dosage_eval1 = dosage_basis.evaluate(dosage*lamb+1)
 
     #calculate etaHat stpuidly
-    Hx1=value_summand_H(cur_dosage_eval1[:,0,0], cur_dosage_eval0[:,0,0], theta0, theta1, p_avail_avg,1)
-    Hx0=value_summand_H(cur_dosage_eval1[:,0,0], cur_dosage_eval0[:,0,0], theta0, theta1, p_avail_avg,0)
-    etaHat1=Hx0-Hx1
+    #Hx1=value_summand_H(cur_dosage_eval1[:,0,0], cur_dosage_eval0[:,0,0], theta0, theta1, p_avail_avg,1)
+    #Hx0=value_summand_H(cur_dosage_eval1[:,0,0], cur_dosage_eval0[:,0,0], theta0, theta1, p_avail_avg,0)
+    #etaHat1=Hx0-Hx1
+    #etaHat1=etaHat1*gamma
 
     #calculate etaHat using peng's
     thetabar=theta0*(1-p_avail_avg)+theta1*(p_avail_avg)
@@ -497,7 +498,7 @@ def calculate_eta(theta0, theta1, dosage, p_avail_avg, psed=PSED, w=W, gamma=GAM
     v1=np.sum(thetabar * cur_dosage_eval1.squeeze().T)
     #import pdb
     #pdb.set_trace()
-    return eta, etaHat, etaHat1, etaInit(float(dosage))[0], v0, v1
+    return eta, etaHat, etaInit(float(dosage))[0], v0, v1
 
 # %%
 def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline_theta, output_dir, log_dir):
@@ -612,15 +613,13 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         if day==10:
             dosage_grid_sub = np.arange(MIN_DOSAGE+.1, MAX_DOSAGE, .1)
             yHat=[]
-            yHat1=[]
             yInit=[]
             v0s=[]
             v1s=[]
             xs=[]
             for d in dosage_grid_sub:
-                eta, etaHat,etaHat1,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
+                eta, etaHat,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
                 yHat.append(etaHat)
-                yHat1.append(etaHat1)
                 yInit.append(etaInit)
                 v0s.append(v0)
                 v1s.append(v1)
@@ -628,8 +627,6 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
 
             print("eta Hat")
             print(yHat)
-            print("eta Hat1")
-            print(yHat1)
             #print("eta Init")
             #print(yInit)
             #print("v1")
@@ -639,14 +636,12 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
 
     dosage_grid_sub = np.arange(MIN_DOSAGE+.1, MAX_DOSAGE, .1)
     yHat=[]
-    yHat1=[]
     yInit=[]
     v0s=[]
     v1s=[]
     xs=[]
     for d in dosage_grid_sub:
-        eta, etaHat,etaHat1,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
-        yHat1.append(etaHat1)
+        eta, etaHat,etaInit,v0,v1=calculate_eta(theta0, theta1, d, p_avail_avg)
         yHat.append(etaHat)
         yInit.append(etaInit)
         v0s.append(v0)
