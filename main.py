@@ -325,7 +325,7 @@ def calculate_posterior_maineffect(prior_alpha1_sigma, prior_alpha1_mu, sigma, a
     '''Calculate the posterior distribution for the case when user is available but we don't take action (action = 0)'''
 
     # Get the index of available timeslots with action = 0, and non nan rewards
-    maineff_idx = np.logical_and(availability_matrix == 1, action_matrix == 0, ~np.isnan(reward_matrix))
+    maineff_idx = np.logical_and.reduce((availability_matrix == 1, action_matrix == 0, ~np.isnan(reward_matrix)))
 
     # the feature matrix, and reward matrix
     X = gs_matrix[maineff_idx]
@@ -444,25 +444,25 @@ def bellman_backup(action_matrix, fs_matrix, gs_matrix, post_mu, p_avail_avg, th
     # now go through each state and bellman update it
     # each V[i+()] corresponds to formula max_a [r_i(x,a) + value_summand]
     for i in range(DOSAGE_GRID_LEN):
-        dosage=dosage_grid[i]
 
-        #bellman update on avail0 case
+        # bellman update on avail0 case
         r00 = reward_available0_action0[i]
-        V[i] = r00 + gamma*get_value_summand(i, 0, p_avail_avg, theta0, theta1)
+        V[i] = r00 + gamma * get_value_summand(i, 0, p_avail_avg, theta0, theta1)
 
-        #bellman update on avail1 case
+        # bellman update on avail1 case
         r10 = reward_available1_action0[i]
-        v0 = r10 + gamma*get_value_summand(i, 0, p_avail_avg, theta0,theta1)
+        v0 = r10 + gamma * get_value_summand(i, 0, p_avail_avg, theta0,theta1)
 
+        # bellman update on avail1 action1 case
         r11 = reward_available1_action1[i]
-        v1  = r11 + gamma*get_value_summand(i, 1, p_avail_avg, theta0, theta1)
+        v1  = r11 + gamma * get_value_summand(i, 1, p_avail_avg, theta0, theta1)
         v = max(v1, v0)
         V[i + DOSAGE_GRID_LEN] = v
 
     return np.array(V)
 
 # %%
-def calculate_value_functions(availability_matrix, action_matrix, fs_matrix, gs_matrix, reward_matrix, post_beta_mu, post_alpha0_mu, post_alpha1_mu):
+def calculate_value_functions(availability_matrix, action_matrix, fs_matrix, gs_matrix, reward_matrix, beta_mu, alpha0_mu, alpha1_mu, ts):
     '''Calculate eta for a given dosage'''
 
     # Remove datapoints with nan rewards
@@ -481,16 +481,13 @@ def calculate_value_functions(availability_matrix, action_matrix, fs_matrix, gs_
     
     # get rewards vectors for each case: r_i(x,a)
     #r_0(x,0)
-    r00 = get_empirical_rewards_estimate(0, 0, F, G, pZ, post_beta_mu, post_alpha0_mu, post_alpha1_mu)
+    r00 = get_empirical_rewards_estimate(0, 0, F, G, pZ, beta_mu, alpha0_mu, alpha1_mu)
 
     #r_1(x,0)
-    r10 = get_empirical_rewards_estimate(1, 0, F, G, pZ, post_beta_mu, post_alpha0_mu, post_alpha1_mu)
+    r10 = get_empirical_rewards_estimate(1, 0, F, G, pZ, beta_mu, alpha0_mu, alpha1_mu)
 
     #r_1(x,1)
-    r11 = get_empirical_rewards_estimate(1, 1, F, G, pZ, post_beta_mu, post_alpha0_mu, post_alpha1_mu)
-    
-    # if ts == 349:
-    #     import pdb; pdb.set_trace()
+    r11 = get_empirical_rewards_estimate(1, 1, F, G, pZ, beta_mu, alpha0_mu, alpha1_mu)
 
     # get initial value estimates for V(dosage, i)
     # init to 0's! have ordering be dosage_grid(0), dosage_grid(1). dosage_grid(i) means dosagegrid x availability=i
@@ -511,82 +508,36 @@ def calculate_value_functions(availability_matrix, action_matrix, fs_matrix, gs_
         theta1 = np.matmul(dosage_OLS_soln, V[DOSAGE_GRID_LEN:])
 
         # update value function
-        V = bellman_backup(A, F, G, post_beta_mu, p_avail_avg, theta0, theta1, r00, r10, r11)
+        V = bellman_backup(A, F, G, beta_mu, p_avail_avg, theta0, theta1, r00, r10, r11)
         
         # compute the loss/delta
-        # delta = np.linalg.norm(np.array(V) - np.array(V_old))
         delta = np.amax(np.abs(V - V_old))
 
         iters = iters+1
-    
-    # if ts == 349:
-    #     import pdb; pdb.set_trace()
 
     return theta0, theta1, p_avail_avg
 
-def value_summand_H(basis_representation1, basis_representation0, theta0, theta1, pavail, action, psed=PSED):
-    summand = 0
-    # when action == 0
-    if action == 0:
-        # case: x'=\lambda*dosage+1,i'=1
-        V_1_1 = basis_representation1 @ theta1
-        summand += (psed)   * pavail     * V_1_1
-
-        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
-        V_1_0 = basis_representation1 @ theta0
-        summand += (psed)   * (1-pavail) * V_1_0
-
-        # case: x'=\lambda*dosage,i'=1
-        V_0_1 = basis_representation0 @ theta1
-        summand += (1-psed) * pavail     * V_0_1
-
-        # case: x'=\lambda*dosage,i'=0. index into V_old with or without offset depending on availability
-        V_0_0 = basis_representation0 @ theta0
-        summand += (1-psed) * (1-pavail) * V_0_0
-
-    # when action == 1
-    else:
-        # case: x'=\lambda*dosage+1,i'=1
-        V_1_1 = basis_representation1 @ theta1
-        summand += pavail     * V_1_1
-
-        # case: x'=\lambda*dosage+1,i'=0. index into V_old with or without offset depending on availability
-        V_1_0 = basis_representation1 @ theta0
-        summand += (1-pavail) * V_1_0
-    return summand
+# %%
 
 def calculate_eta(theta0, theta1, dosage, p_avail, ts, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
 
+    # If less than 10 time steps, use etaInit from HeartStepsV1
     if ts < 10:
         return etaInit(float(dosage))[0]
 
     cur_dosage_eval0 = dosage_basis.evaluate(dosage * lamb)
     cur_dosage_eval1 = dosage_basis.evaluate(dosage * lamb + 1)
 
-    #calculate etaHat stpuidly
-    #Hx1=value_summand_H(cur_dosage_eval1[:,0,0], cur_dosage_eval0[:,0,0], theta0, theta1, p_avail,1)
-    #Hx0=value_summand_H(cur_dosage_eval1[:,0,0], cur_dosage_eval0[:,0,0], theta0, theta1, p_avail,0)
-    #etaHat1=Hx0-Hx1
-    #etaHat1=etaHat1*gamma
-
-    #calculate etaHat using peng's
+    # Calculate etaHat using peng's
     thetabar = theta0 * (1 - p_avail) + theta1 * (p_avail)
     val = np.sum(thetabar * (cur_dosage_eval0 - cur_dosage_eval1).squeeze().T)
 
-    # TODO: remove this
-    # etaHat = val * (1-psed) * (gamma)
-    etaHat = val * (1-psed) * (1 - gamma)
+    # Peng most likely got this wrong (He used 1-gamma instead of gamma)
+    etaHat = val * (1-psed) * (gamma)
+    # etaHat = val * (1-psed) * (1 - gamma)
 
     eta = w * etaHat + (1-w) * etaInit(float(dosage))[0]
 
-    v0 = np.sum(thetabar * cur_dosage_eval0.squeeze().T)
-    v1 = np.sum(thetabar * cur_dosage_eval1.squeeze().T)
-
-    #import pdb
-    #pdb.set_trace()
-
-    # TODO: remove this
-    # return etaHat
     return eta
 
 # %%
@@ -600,15 +551,9 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     dosage = data[0][6]
 
     # Posterior initialized using priors
-    post_beta_sigma, post_beta_mu = np.copy(beta_pmean), np.copy(beta_psd)
-
-    post_mu_alpha_avail_action0, post_sigma_alpha_avail_action0 = np.copy(alpha1_pmean), np.copy(alpha1_psd)
-    post_mu_alpha_avail_action0 = np.reshape(post_mu_alpha_avail_action0, (post_mu_alpha_avail_action0.shape[0], 1))
-    prior_mu_alpha_avail_action0, prior_sigma_alpha_avail_action0 = np.copy(alpha1_pmean), np.copy(alpha1_psd)
-
-    post_mu_alpha_unavail, post_sigma_alpha_unavail = np.copy(alpha0_pmean), np.copy(alpha0_psd)
-    post_mu_alpha_unavail = np.reshape(post_mu_alpha_unavail, (post_mu_alpha_unavail.shape[0], 1))
-    prior_mu_alpha_unavail, prior_sigma_alpha_unavail = np.copy(alpha0_pmean), np.copy(alpha0_psd)
+    post_alpha0_mu, post_alpha0_sigma = np.copy(alpha0_pmean), np.copy(alpha0_psd)
+    post_alpha1_mu, post_alpha1_sigma = np.copy(alpha1_pmean), np.copy(alpha1_psd)
+    post_beta_mu, post_beta_sigma = np.copy(beta_pmean), np.copy(beta_psd)
 
     # DS to store availability, probabilities, features, actions, posteriors and rewards
     availability_matrix = np.zeros((NDAYS * NTIMES))
@@ -618,21 +563,23 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     fs_matrix = np.zeros((NDAYS * NTIMES, F_LEN))
     gs_matrix = np.zeros((NDAYS * NTIMES, G_LEN))
 
-    #alpha2 in peng's
-    post_mu_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN))
-    post_sigma_matrix = np.zeros((NDAYS * NTIMES, G_LEN + 2 * F_LEN, G_LEN + 2 * F_LEN))
+    # Posterior matrices
+    # alpha0
+    post_alpha0_mu_matrix = np.zeros((NDAYS * NTIMES, G_LEN))
+    post_alpha0_sigma_matrix = np.zeros((NDAYS * NTIMES, G_LEN, G_LEN))
 
-    #alpha0 in peng's
-    post_mu_alpha_unavail_matrix = np.zeros((NDAYS * NTIMES, G_LEN))
-    post_sigma_alpha_unavail_matrix = np.zeros((NDAYS * NTIMES, G_LEN , G_LEN))
+    # alpha1
+    post_alpha1_mu_matrix = np.zeros((NDAYS * NTIMES, G_LEN))
+    post_alpha1_sigma_matrix = np.zeros((NDAYS * NTIMES, G_LEN , G_LEN))
 
-    #alpha1 in peng's
-    post_mu_alpha_avail_action0_matrix = np.zeros((NDAYS * NTIMES, G_LEN ))
-    post_sigma_alpha_avail_action0_matrix = np.zeros((NDAYS * NTIMES, G_LEN , G_LEN ))
+    # beta
+    post_beta_mu_matrix = np.zeros((NDAYS * NTIMES, F_LEN ))
+    post_beta_sigma_matrix = np.zeros((NDAYS * NTIMES, F_LEN , F_LEN ))
 
-    theta0, theta1 = np.zeros(NBASIS), np.zeros(NBASIS)
     eta = 0
     p_avail_avg = 0
+    theta0, theta1 = np.zeros(NBASIS), np.zeros(NBASIS)
+    
 
     for day in range(NDAYS):
         # loop for each decision time during the day
@@ -670,7 +617,6 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
                 # Save probability, features, action and reward
                 prob_matrix[ts] = prob_fsb
                 action_matrix[ts] = action
-                # reward_matrix[ts] = reward
 
             # Save features and state
             reward = data[ts][5]
@@ -679,50 +625,40 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             fs_matrix[ts] = fs
             gs_matrix[ts] = gs
 
-            # post_mu_matrix[ts] = post_mu[:,0]
-            # post_sigma_matrix[ts] = post_sigma
+            post_alpha0_mu_matrix[ts] = post_alpha0_mu
+            post_alpha0_sigma_matrix[ts] = post_alpha0_sigma
+
+            post_alpha1_mu_matrix[ts] = post_alpha1_mu
+            post_alpha1_sigma_matrix[ts] = post_alpha1_sigma
+
+            post_beta_mu_matrix[ts] = post_beta_mu
+            post_beta_sigma_matrix[ts] = post_beta_sigma
             
-
-        # import pdb
-        # pdb.set_trace()
-
-        # Update posterior
-        #again like alpha2 in pengs
-        post_beta_mu, post_beta_sigma = calculate_posterior_avail(alpha1_psd, alpha1_pmean, beta_psd, beta_pmean, sigma, availability_matrix[:ts + 1],
-                                                                  prob_matrix[:ts +1], reward_matrix[:ts + 1],
+        # Update posteriors at the end of the day
+        post_beta_mu, post_beta_sigma = calculate_posterior_avail(alpha1_psd, alpha1_pmean, beta_psd, beta_pmean, sigma, 
+                                                                  availability_matrix[:ts + 1], prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                                   action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], day)
 
-        #again like alpha0 in pengs
-        # indices = list(np.where(availability_matrix[:ts+1]==0)[0])
-        # post_mu_alpha_unavail, post_sigma_alpha_unavail= calculate_posterior_baseline(indices, prior_sigma_alpha_unavail, prior_mu_alpha_unavail, sigma, availability_matrix[:ts + 1], reward_matrix[:ts + 1], gs_matrix[:ts + 1])
-        
+        post_alpha0_mu, post_alpha0_sigma = calculate_posterior_unavail(alpha0_psd, alpha0_pmean, sigma, availability_matrix[:ts + 1], 
+                                                                            reward_matrix[:ts + 1], gs_matrix[:ts + 1], day)
 
-        post_mu_unavail, post_sigma_unavail = calculate_posterior_unavail(prior_sigma_alpha_unavail, prior_mu_alpha_unavail, 
-                                                                            sigma, availability_matrix[:ts + 1], reward_matrix[:ts + 1],
-                                                                            gs_matrix[:ts + 1], day)
-
-        #again like alpha1 in pengs
-        # indices=list(np.intersect1d(np.where(availability_matrix[:ts+1]==1), np.where(action_matrix[:ts+1]==0)))
-        # post_mu_alpha_avail_action0, post_sigma_alpha_avail_action0= calculate_posterior_baseline(indices,prior_sigma_alpha_avail_action0, prior_mu_alpha_avail_action0, sigma, availability_matrix[:ts + 1], reward_matrix[:ts + 1], gs_matrix[:ts + 1])
-
-        post_mu_avail_action0, post_sigma_avail_action0 = calculate_posterior_maineffect(prior_sigma_alpha_avail_action0, 
-                                                                            prior_mu_alpha_avail_action0, sigma, 
-                                                                            availability_matrix[:ts + 1], reward_matrix[:ts + 1],
-                                                                            action_matrix[:ts + 1], gs_matrix[:ts + 1], day)
+        post_alpha1_mu, post_alpha0_sigma = calculate_posterior_maineffect(alpha1_psd, alpha1_pmean, sigma, availability_matrix[:ts + 1], 
+                                                                                        reward_matrix[:ts + 1], action_matrix[:ts + 1], gs_matrix[:ts + 1], day)
 
         # update value functions
         theta0, theta1, p_avail_avg = calculate_value_functions(availability_matrix[:ts + 1], action_matrix[:ts + 1], 
                                                     fs_matrix[:ts + 1], gs_matrix[:ts + 1], reward_matrix[:ts + 1], 
-                                                    post_beta_mu, post_mu_unavail, post_mu_avail_action0)
+                                                    post_beta_mu, post_alpha0_mu, post_alpha1_mu, ts)
 
         if day == 69:
             import pdb
             pdb.set_trace()
 
     result = {"availability": availability_matrix, "prob": prob_matrix, "action": action_matrix, "reward": reward_matrix,
-            "post_mu_alpha_unavail": post_mu_alpha_unavail_matrix, "post_sigma_alpha_unavail": post_sigma_alpha_unavail_matrix,
-            "post_mu_alpha_avail_action0": post_mu_alpha_avail_action0_matrix, "post_sigma_alpha_avail_action0": post_sigma_alpha_avail_action0_matrix,
-            "fs": fs_matrix, "gs": gs_matrix, "post_mu": post_mu_matrix, "post_sigma": post_sigma_matrix}
+            "post_alpha0_mu": post_alpha0_mu_matrix, "post_alpha0_sigma": post_alpha0_sigma_matrix,
+            "post_alpha1_mu": post_alpha1_mu_matrix, "post_alpha1_sigma": post_alpha1_sigma_matrix,
+            "post_beta_mu": post_beta_mu_matrix, "post_beta_sigma": post_beta_sigma_matrix,
+            "fs": fs_matrix, "gs": gs_matrix}
     
     # Save results
     if not user_specific:
