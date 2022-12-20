@@ -18,9 +18,9 @@ rpackages.importr('fda')
 np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: "%.7g" % x))
 
 # %%
-PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
-PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
-PRIOR_NEW_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
+PKL_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
+PRIOR_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
+PRIOR_NEW_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
 NDAYS = 90
 NUSERS = 91
 NTIMES = 5
@@ -146,9 +146,6 @@ def load_priors():
     beta_psd = np.array(priors.rx2("Sigma2"))
     sigma = float(priors.rx2("sigma")[0])
 
-    # prior_sigma = linalg.block_diag(alpha_psd, beta_psd, beta_psd)
-    # prior_mu = np.concatenate([alpha_pmean, beta_pmean, beta_pmean])
-
     return alpha0_pmean, alpha0_psd, alpha_pmean, alpha_psd, beta_pmean, beta_psd, sigma
 
 # %%
@@ -178,12 +175,12 @@ def clip(x, E0=E0, E1=E1):
     return min(1 - E0, max(x, E1))
 
 # %%
-def calculate_post_prob(fs, beta_pmean, beta_psd, eta = 0):
+def calculate_post_prob(ts, data, fs, beta_pmean, beta_psd, eta = 0):
     '''Calculate the posterior probability of Pr(fs * b > eta)'''
 
-    # Get beta's posterior mean and covariance
-    # Do not need this anymore
-    # _, _, beta_pmean, beta_psd = get_priors_alpha_beta(post_mu, post_sigma)
+    # First 7 days, use 0.2 or 0.25 as in the data
+    if ts < 35:
+        return data[ts][3]
 
     # Calculate the mean of the fs*beta distribution
     fs_beta_mean = fs.T.dot(beta_pmean)
@@ -551,13 +548,14 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             availability_matrix[ts] = availability
 
             # If user is available
-            action,prob_fsb=0,0
+            action, prob_fsb = 0, 0
+
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
                 eta = calculate_eta(theta0, theta1, dosage, p_avail_avg, ts)
 
                 #print("\tAvailable: ETA is " + str(eta) + " . Dosage: " + str(dosage))
-                prob_fsb = calculate_post_prob(fs, post_beta_mu, post_beta_sigma, eta)
+                prob_fsb = calculate_post_prob(day, data, fs, post_beta_mu, post_beta_sigma, eta)
 
                 # Sample action with probability prob_fsb from bernoulli distribution
                 action = select_action(prob_fsb)
