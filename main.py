@@ -18,9 +18,9 @@ rpackages.importr('fda')
 np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: "%.7g" % x))
 
 # %%
-PKL_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
-PRIOR_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
-PRIOR_NEW_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
+PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
+PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
+PRIOR_NEW_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
 NDAYS = 90
 NUSERS = 91
 NTIMES = 5
@@ -119,10 +119,7 @@ def determine_user_state(data, dosage, last_action):
     features["prior_anti"] = data[14]
 
     # calculating dosage
-    # newdosage = LAMBDA * dosage + (1 if (features["prior_anti"] == 1 or last_action == 1) else 0)
-
-    # TODO: remove this
-    newdosage = data[6]
+    newdosage = LAMBDA * dosage + (1 if (features["prior_anti"] == 1 or last_action == 1) else 0)
 
     # standardizing the dosage
     features["dosage"] = newdosage / 20.0
@@ -203,7 +200,7 @@ def calculate_post_prob(fs, beta_pmean, beta_psd, eta = 0):
     return phi_prob
 
 # %%
-def calculate_reward(ts, fs, gs, action, prob, baseline_theta, residual_matrix):
+def calculate_reward(ts, fs, gs, action, baseline_theta, residual_matrix):
     '''Calculate the reward for a given action'''
 
     # Get alpha and betas from the baseline
@@ -215,46 +212,6 @@ def calculate_reward(ts, fs, gs, action, prob, baseline_theta, residual_matrix):
     reward = residual_matrix[ts] + estimated_reward # this residual matrix will either by the one from original data or a resampled with replacemnet version if user-specific
 
     return reward
-
-# # %%
-# def calculate_phi(prob_matrix, action_matrix, fs_matrix, gs_matrix):
-#     '''Calculate phi for each user at each time point'''
-#     Phi = np.expand_dims(np.hstack((gs_matrix, fs_matrix * prob_matrix.reshape(-1, 1), \
-#                 (fs_matrix * (action_matrix - prob_matrix).reshape(-1, 1)))), axis=2)
-#     return Phi
-
-# # %%
-# def calculate_post_sigma(prior_sigma, sigma, availability_matrix, Phi):
-#     '''Calculate the posterior sigma'''
-
-#     # Phi squared
-#     Phi_square = np.multiply(Phi, Phi.transpose(0, 2, 1))
-
-#     # Sum of availability times Phi squared
-#     avail_phi_squared_sum = np.sum(np.multiply(availability_matrix.reshape(-1, 1, 1), Phi_square), axis=0) / (sigma**2)
-
-#     # Posterior sigma
-#     post_sigma = np.linalg.inv(np.linalg.inv(prior_sigma) + avail_phi_squared_sum)
-
-#     return post_sigma
-
-# # %%
-# def calculate_post_mu(prior_sigma, prior_mu, sigma, availability_matrix, reward_matrix, Phi, post_sigma):
-#     '''Calculate the posterior mu'''
-
-#     # Product of prior sigma inverse and prior mu
-#     sig_mu = (np.linalg.inv(prior_sigma) @ prior_mu.T).reshape(-1, 1)
-    
-#     # Product of Phi and reward
-#     Phi_reward = np.multiply(Phi, reward_matrix.reshape(-1, 1, 1))
-
-#     # Sum of availability times Phi and reward
-#     avail_phi_reward_sum = np.sum(np.multiply(availability_matrix.reshape(-1, 1, 1), Phi_reward), axis=0)
-
-#     # Posterior mu
-#     post_mu = (post_sigma @ (sig_mu + avail_phi_reward_sum)) / (sigma ** 2)
-
-#     return post_mu
 
 # %%
 def calculate_posteriors(X, Y, prior_mu, prior_sigma, sigma):
@@ -579,11 +536,9 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     eta = 0
     p_avail_avg = 0
     theta0, theta1 = np.zeros(NBASIS), np.zeros(NBASIS)
-    
 
     for day in range(NDAYS):
         # loop for each decision time during the day
-        #print("DAY IS "+str(day))
         for time in range(NTIMES):
 
             # Get the current timeslot
@@ -596,30 +551,25 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             availability_matrix[ts] = availability
 
             # If user is available
+            action,prob_fsb=0,0
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
                 eta = calculate_eta(theta0, theta1, dosage, p_avail_avg, ts)
 
                 print("\tAvailable: ETA is " + str(eta) + " . Dosage: " + str(dosage))
-                # TODO - change this
-                # prob_fsb = calculate_post_prob(fs, post_beta_mu, post_beta_sigma, eta)
-                prob_fsb = data[ts][3]
+                prob_fsb = calculate_post_prob(fs, post_beta_mu, post_beta_sigma, eta)
 
                 # Sample action with probability prob_fsb from bernoulli distribution
-                # action = select_action(prob_fsb)
-                action = data[ts][4]
+                action = select_action(prob_fsb)
 
-                # Bayesian LR to estimate reward
-                # TODO - move the reward outside, because we might also want data when user is not available
-                # reward = data[ts][5]
-                # reward = calculate_reward(ts, fs, gs, action, prob_fsb, baseline_theta, residual_matrix)
+            # Bayesian LR to estimate reward
+            reward = calculate_reward(ts, fs, gs, action, baseline_theta, residual_matrix)
 
-                # Save probability, features, action and reward
-                prob_matrix[ts] = prob_fsb
-                action_matrix[ts] = action
+            # Save probability, features, action and reward
+            prob_matrix[ts] = prob_fsb
+            action_matrix[ts] = action
 
             # Save features and state
-            reward = data[ts][5]
             reward_matrix[ts] = reward
 
             fs_matrix[ts] = fs
@@ -649,10 +599,6 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         theta0, theta1, p_avail_avg = calculate_value_functions(availability_matrix[:ts + 1], action_matrix[:ts + 1], 
                                                     fs_matrix[:ts + 1], gs_matrix[:ts + 1], reward_matrix[:ts + 1], 
                                                     post_beta_mu, post_alpha0_mu, post_alpha1_mu, ts)
-
-        if day == 69:
-            import pdb
-            pdb.set_trace()
 
     result = {"availability": availability_matrix, "prob": prob_matrix, "action": action_matrix, "reward": reward_matrix,
             "post_alpha0_mu": post_alpha0_mu_matrix, "post_alpha0_sigma": post_alpha0_sigma_matrix,
