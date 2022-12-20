@@ -556,7 +556,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
                 # Calculate probability of (fs x beta) > n
                 eta = calculate_eta(theta0, theta1, dosage, p_avail_avg, ts)
 
-                print("\tAvailable: ETA is " + str(eta) + " . Dosage: " + str(dosage))
+                #print("\tAvailable: ETA is " + str(eta) + " . Dosage: " + str(dosage))
                 prob_fsb = calculate_post_prob(fs, post_beta_mu, post_beta_sigma, eta)
 
                 # Sample action with probability prob_fsb from bernoulli distribution
@@ -607,11 +607,8 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             "fs": fs_matrix, "gs": gs_matrix}
     
     # Save results
-    if not user_specific:
-        with open(output_dir + f"/results_{user}_{boot_num}.pkl", "wb") as f:
-            pkl.dump(result, f)
-    else:
-        pass
+    with open(output_dir + f"/results_{user}_{boot_num}.pkl", "wb") as f:
+        pkl.dump(result, f)
 
 def resample_user_residuals(residual_matrix, user):
     T= NDAYS * NTIMES
@@ -643,19 +640,18 @@ def main():
     data = load_data()
 
     # Prepare directory for output and logging
-    if not os.path.exists(args.output):
-        os.makedirs(args.output)
-    if not os.path.exists(args.log):
-        os.makedirs(args.log)
-    output_dir = os.path.join(args.output, "bootstrap_" + str(args.bootstrap), "user_" + str(args.seed))
-    log_dir = os.path.join(args.log, "bootstrap_" + str(args.bootstrap), "user_" + str(args.seed))
+    args.user_specific=False
+    print(args.user_specific)
+
+    output_dir = os.path.join(args.output, "Bootstrap-" + str(args.bootstrap)+"_Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "user-"+str(args.user))
+    log_dir = os.path.join(args.log, "Bootstrap-" + str(args.bootstrap)+"_Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "user-"+str(args.user))
+    print(output_dir)
+    print(log_dir)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
-    args.user_specific=False
-    print(args.user_specific)
     residual_matrix=residual_matrix[args.user]
     # need to make it s.t. we are doing different seq of seeds in user specific case.
     if args.user_specific:
