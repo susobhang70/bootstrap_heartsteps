@@ -18,9 +18,9 @@ rpackages.importr('fda')
 np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: "%.7g" % x))
 
 # %%
-PKL_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
-PRIOR_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
-PRIOR_NEW_DATA_PATH = "/Users/sghosh/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
+PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
+PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
+PRIOR_NEW_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
 NDAYS = 90
 NUSERS = 91
 NTIMES = 5
@@ -97,6 +97,9 @@ def load_initial_run(residual_path, baseline_thetas_path, baseline):
         baseline_thetas = baseline_pickle["posterior"]
     elif baseline == "Zero":
         baseline_thetas = baseline_pickle["all0TxEffect"]
+    elif baseline in F_KEYS:
+        index=F_KEYS.equals(baseline)
+        baseline_thetas = baseline_pickle["0TxEffect_beta_i"][index]
     else:
         raise ValueError("Invalid baseline")
 
@@ -205,7 +208,7 @@ def calculate_reward(ts, fs, gs, action, baseline_theta, residual_matrix):
     beta   = baseline_theta[-F_LEN:].flatten()
 
     # Calculate reward
-    estimated_reward = gs[1] * alpha0[1] + action* (fs @ beta) #for dosage as baseline
+    estimated_reward = (gs @ alpha0) + action * (fs @ beta) #for dosage as baseline
     reward = residual_matrix[ts] + estimated_reward # this residual matrix will either by the one from original data or a resampled with replacemnet version if user-specific
 
     return reward
@@ -549,7 +552,6 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
 
             # If user is available
             action, prob_fsb = 0, 0
-
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
                 eta = calculate_eta(theta0, theta1, dosage, p_avail_avg, ts)
@@ -623,7 +625,7 @@ def main():
     parser.add_argument("-us", "--user_specific", default=False, type=bool, required=False, help="User specific experiment")
     parser.add_argument("-o", "--output", type=str, default="./output", required=False, help="Output file directory name")
     parser.add_argument("-l", "--log", type=str, default="./log", required=False, help="Log file directory name")
-    parser.add_argument("-bi", "--baseline", type=str, default="Prior", required=False, help="Baseline of interest")
+    parser.add_argument("-bi", "--baseline", type=str, default="Prior", required=False, help="Baseline of interest. If you want to run interestingness analysis, put in the F_KEY as a string to get thetas for that tx Effect coef 0ed out.")
     parser.add_argument("-rm", "--residual_matrix", type=str, default="./init/residual_matrix.pkl", required=False, help="Pickle file for residual matrix")
     parser.add_argument("-bp", "--baseline_theta", type=str, default="./init/baseline_parameters.pkl", required=False, help="Pickle file for baseline parameters")
     args = parser.parse_args()
@@ -641,6 +643,7 @@ def main():
     args.user_specific=False
     print(args.user_specific)
 
+    # note if baseline in F_KEYS, we have an interestingness bootstrap (by nature of baseline thetas used)
     output_dir = os.path.join(args.output, "Bootstrap-" + str(args.bootstrap)+"_Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "user-"+str(args.user))
     log_dir = os.path.join(args.log, "Bootstrap-" + str(args.bootstrap)+"_Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "user-"+str(args.user))
     print(output_dir)
