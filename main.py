@@ -58,10 +58,9 @@ dosage_eval = dosage_eval[:, :, 0]
 # setup dosage matrix instead of np.repeat in calculating marginal rewards
 dosage_matrix = []
 for dosage in dosage_grid:
-    dosageI = np.repeat(dosage, NTIMES*NDAYS)
+    dosageI = np.repeat(dosage/20.0, NTIMES*NDAYS)
     dosage_matrix.append(dosageI)
 dosage_matrix = np.matrix(dosage_matrix)
-dosage_matrix = dosage_matrix.T
     
 # %%
 # partial dosage ols solutions used in eta proxy update (in particular, where value updates are done via function approximation)
@@ -149,7 +148,8 @@ def load_priors():
     beta_psd = np.array(priors.rx2("Sigma2"))
     sigma = float(priors.rx2("sigma")[0])
 
-    return alpha0_pmean, alpha0_psd, alpha_pmean, alpha_psd, beta_pmean, beta_psd, sigma
+    prior_sigma = linalg.block_diag(alpha_psd, beta_psd, beta_psd)
+    return alpha0_pmean, alpha0_psd, alpha_pmean, alpha_psd, beta_pmean, beta_psd, sigma, prior_sigma
 
 # %%
 def get_priors_alpha_beta(post_mu, post_sigma):
@@ -214,19 +214,19 @@ def calculate_reward(ts, fs, gs, action, baseline_theta, residual_matrix):
     return reward
 
 # %%
-def calculate_posteriors(X, Y, prior_mu, prior_sigma, sigma):
+def calculate_posteriors(X, Y, prior_mu, sigmaInv, sigma):
     '''Calculate the posterior mu and sigma'''
 
     # Calculate posterior sigma
-    post_sigma = (sigma**2) * np.linalg.inv(X.T @ X + (sigma**2) * np.linalg.inv(prior_sigma))
+    post_sigma = (sigma**2) * np.linalg.inv(X.T @ X + (sigma**2) * sigmaInv)
 
     # Calculate posterior mu
-    post_mu = (post_sigma @ ((X.T @ Y)/(sigma**2) + np.linalg.inv(prior_sigma) @ prior_mu) )
+    post_mu = (post_sigma @ ((X.T @ Y)/(sigma**2) + sigmaInv @ prior_mu) )
 
     return post_mu, post_sigma
 
 # %%
-def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, day):
+def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, sigmaInv):
     '''Calculate the posterior distribution when user is available'''
 
     # Get indices with non nan rewards, and where availability is 1
@@ -250,7 +250,7 @@ def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     Y = R
 
     # Calculate posterior mu and sigma
-    post_mu, post_sigma = calculate_posteriors(X, Y, prior_mu, prior_sigma, sigma)
+    post_mu, post_sigma = calculate_posteriors(X, Y, prior_mu, sigmaInv, sigma)
 
     # Get the posterior beta mu and sigma
     post_beta_mu, post_beta_sigma = post_mu[-F_LEN:], post_sigma[-F_LEN:, -F_LEN:]
@@ -258,7 +258,7 @@ def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     return post_beta_mu, post_beta_sigma
 
 # %%
-def calculate_posterior_unavail(prior_alpha0_sigma, prior_alpha0_mu, sigma, availability_matrix, reward_matrix, gs_matrix, day):
+def calculate_posterior_unavail(prior_alpha0_sigma, prior_alpha0_mu, sigma, availability_matrix, reward_matrix, gs_matrix, sigmaInv):
     '''Calculate the posterior distribution for the case when there are no available timesloday'''
 
     # Get the index of unavailable timeslots and non nan rewards
@@ -273,12 +273,12 @@ def calculate_posterior_unavail(prior_alpha0_sigma, prior_alpha0_mu, sigma, avai
         return prior_alpha0_mu, prior_alpha0_sigma
 
     # Calculate posterior mu and sigma
-    post_alpha0_mu, post_alpha0_sigma = calculate_posteriors(X, Y, prior_alpha0_mu, prior_alpha0_sigma, sigma)
+    post_alpha0_mu, post_alpha0_sigma = calculate_posteriors(X, Y, prior_alpha0_mu, sigmaInv, sigma)
 
     return post_alpha0_mu, post_alpha0_sigma
 
 # %%
-def calculate_posterior_maineffect(prior_alpha1_sigma, prior_alpha1_mu, sigma, availability_matrix, reward_matrix, action_matrix, gs_matrix, day):
+def calculate_posterior_maineffect(prior_alpha1_sigma, prior_alpha1_mu, sigma, availability_matrix, reward_matrix, action_matrix, gs_matrix, sigmaInv):
     '''Calculate the posterior distribution for the case when user is available but we don't take action (action = 0)'''
 
     # Get the index of available timeslots with action = 0, and non nan rewards
@@ -293,7 +293,7 @@ def calculate_posterior_maineffect(prior_alpha1_sigma, prior_alpha1_mu, sigma, a
         return prior_alpha1_mu, prior_alpha1_sigma
 
     # Calculate posterior mu and sigma
-    post_alpha1_mu, post_alpha1_sigma = calculate_posteriors(X, Y, prior_alpha1_mu, prior_alpha1_sigma, sigma)
+    post_alpha1_mu, post_alpha1_sigma = calculate_posteriors(X, Y, prior_alpha1_mu, sigmaInv, sigma)
 
     return post_alpha1_mu, post_alpha1_sigma
 
@@ -347,15 +347,13 @@ def get_empirical_rewards_estimate(target_availability, target_action, fs_matrix
     for i in range(DOSAGE_GRID_LEN):
 
         # modifying feature matrices to have the dosage from the dosage_grid
-        fs[:, 1] = np.repeat(dosage_grid[i] / 20.0, len(fs))
-        gs[:, 4] = np.repeat(dosage_grid[i] / 20.0, len(fs))
-
+        fs[:, 1] = dosage_matrix[i,:len(fs)]#np.repeat(dosage_grid[i] / 20.0, len(fs))
+        gs[:, 4] = dosage_matrix[i,:len(fs)]#np.repeat(dosage_grid[i] / 20.0, len(fs))
         # using target values instead of action[t] for speedup
         fittedReward = target_availability * (gs @ alpha1_mu * pZ + target_action * (fs @ beta_mu * pZ)) + \
                         (1-target_availability) * (gs @ alpha0_mu * pZ)
 
         rewardEstimates.append(np.sum(fittedReward))
-
     return rewardEstimates
 
 # %%
@@ -502,7 +500,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     '''Run the algorithm for each user and each bootstrap'''
 
     # Load priors
-    alpha0_pmean, alpha0_psd, alpha1_pmean, alpha1_psd, beta_pmean, beta_psd, sigma = load_priors()
+    alpha0_pmean, alpha0_psd, alpha1_pmean, alpha1_psd, beta_pmean, beta_psd, sigma, prior_sigma = load_priors()
 
     # Initializing dosage to first dosage value (can be non-zero if user was already in the trial)
     dosage = data[0][6]
@@ -511,6 +509,11 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     post_alpha0_mu, post_alpha0_sigma = np.copy(alpha0_pmean), np.copy(alpha0_psd)
     post_alpha1_mu, post_alpha1_sigma = np.copy(alpha1_pmean), np.copy(alpha1_psd)
     post_beta_mu, post_beta_sigma = np.copy(beta_pmean), np.copy(beta_psd)
+
+    # get inverses
+    post_alpha0_sigmaInv=np.linalg.inv(alpha0_psd)
+    post_alpha1_sigmaInv=np.linalg.inv(alpha1_psd)
+    post_beta_sigmaInv=np.linalg.inv(prior_sigma)
 
     # DS to store availability, probabilities, features, actions, posteriors and rewards
     availability_matrix = np.zeros((NDAYS * NTIMES))
@@ -583,17 +586,17 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
 
             post_beta_mu_matrix[ts] = post_beta_mu
             post_beta_sigma_matrix[ts] = post_beta_sigma
-            
+
         # Update posteriors at the end of the day
         post_beta_mu, post_beta_sigma = calculate_posterior_avail(alpha1_psd, alpha1_pmean, beta_psd, beta_pmean, sigma, 
                                                                   availability_matrix[:ts + 1], prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
-                                                                  action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], day)
+                                                                  action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_beta_sigmaInv)
 
         post_alpha0_mu, post_alpha0_sigma = calculate_posterior_unavail(alpha0_psd, alpha0_pmean, sigma, availability_matrix[:ts + 1], 
-                                                                            reward_matrix[:ts + 1], gs_matrix[:ts + 1], day)
+                                                                            reward_matrix[:ts + 1], gs_matrix[:ts + 1], post_alpha0_sigmaInv)
 
         post_alpha1_mu, post_alpha0_sigma = calculate_posterior_maineffect(alpha1_psd, alpha1_pmean, sigma, availability_matrix[:ts + 1], 
-                                                                                        reward_matrix[:ts + 1], action_matrix[:ts + 1], gs_matrix[:ts + 1], day)
+                                                                                        reward_matrix[:ts + 1], action_matrix[:ts + 1], gs_matrix[:ts + 1], post_alpha1_sigmaInv)
 
         # update value functions
         theta0, theta1, p_avail_avg = calculate_value_functions(availability_matrix[:ts + 1], action_matrix[:ts + 1], 
