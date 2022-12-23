@@ -30,21 +30,31 @@ def computeMetricEngagementCurve(result, betaIndex):
         available=result['availability'][t]
         if available:
             times.append(t)
+
+            # track how many timepts are engaged or not engaged
             if result['fs'][t,betaIndex]==1:
                 sumVar=sumVar+1
             else:
                 sumNotVar=sumNotVar+1
 
-            fs_engageIsX=result['fs'][t]
-            fs_engageIsX[betaIndex]=0
+            # get standardized posterior tx effect under engage=1 and engage = 1
+            fs_betaIndexIsX=result['fs'][t]
+            fs_betaIndexIsX[betaIndex]=0
             posterior_t=result['post_beta_mu'][t][-F_LEN:]
-            txEffect0=posterior_t @ fs_engageIsX
+            sigma_t=result['post_beta_sigma'][t][-len(F_KEYS):, -len(F_KEYS):]
+
+            txEffect0=posterior_t @ fs_betaIndexIsX
+            std=(fs_betaIndexIsX @ sigma_t.T) @ fs_betaIndexIsX
+            txEffect0=txEffect0/std
 
             if betaIndex==1:#if dosage
-                fs_engageIsX[betaIndex]=1.86
+                fs_betaIndexIsX[betaIndex]=1.86
             else:
-                fs_engageIsX[betaIndex]=1
-            txEffect1=posterior_t @ fs_engageIsX
+                fs_betaIndexIsX[betaIndex]=1
+
+            txEffect1=posterior_t @ fs_betaIndexIsX
+            std=(fs_betaIndexIsX @ sigma_t.T) @ fs_betaIndexIsX
+            txEffect1=txEffect1/std
 
             statistic['txEffect0'].append(txEffect0)
             statistic['txEffect1'].append(txEffect1)
@@ -179,6 +189,9 @@ def main():
         a_file.write(statisticsLine+"\n")
     a_file.close()
 
+    import pdb
+    pdb.set_trace()
+    
 # %%
 if __name__ == "__main__":
     main()
