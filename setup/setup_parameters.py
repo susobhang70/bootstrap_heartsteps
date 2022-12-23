@@ -405,16 +405,3 @@ with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael
         
 with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl', 'wb') as handle:
     pkl.dump(result, handle, protocol=pkl.HIGHEST_PROTOCOL)
-
-# write result!
-with open('/Users/raphaelkim/Downloads/test_cluster_code_susobhan/init/baseline_parameters.pkl', 'wb') as handle:
-    pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
-        
-with open('/Users/raphaelkim/Downloads/test_cluster_code_susobhan/init/residual_matrix.pkl', 'wb') as handle:
-    pkl.dump(res_matrix, handle, protocol=pkl.HIGHEST_PROTOCOL)
-        
-with open('/Users/raphaelkim/Downloads/test_cluster_code_susobhan/init/original_result_91.pkl', 'wb') as handle:
-    pkl.dump(result, handle, protocol=pkl.HIGHEST_PROTOCOL)
-
-import pdb
-pdb.set_trace()

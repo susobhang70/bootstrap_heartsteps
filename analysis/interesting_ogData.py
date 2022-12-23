@@ -179,9 +179,6 @@ def main():
         a_file.write(statisticsLine+"\n")
     a_file.close()
 
-    import pdb
-    pdb.set_trace()
-    
 # %%
 if __name__ == "__main__":
     main()
