@@ -226,7 +226,7 @@ def calculate_posteriors(X, Y, prior_mu, sigmaInv, sigma):
     return post_mu, post_sigma
 
 # %%
-def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, sigmaInv):
+def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, beta_sigmaInv):
     '''Calculate the posterior distribution when user is available'''
 
     # Get indices with non nan rewards, and where availability is 1
@@ -250,7 +250,7 @@ def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     Y = R
 
     # Calculate posterior mu and sigma
-    post_mu, post_sigma = calculate_posteriors(X, Y, prior_mu, sigmaInv, sigma)
+    post_mu, post_sigma = calculate_posteriors(X, Y, prior_mu, beta_sigmaInv, sigma)
 
     # Get the posterior beta mu and sigma
     post_beta_mu, post_beta_sigma = post_mu[-F_LEN:], post_sigma[-F_LEN:, -F_LEN:]
@@ -258,7 +258,7 @@ def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     return post_beta_mu, post_beta_sigma
 
 # %%
-def calculate_posterior_unavail(prior_alpha0_sigma, prior_alpha0_mu, sigma, availability_matrix, reward_matrix, gs_matrix, sigmaInv):
+def calculate_posterior_unavail(prior_alpha0_sigma, prior_alpha0_mu, sigma, availability_matrix, reward_matrix, gs_matrix, alpha0_sigmaInv):
     '''Calculate the posterior distribution for the case when there are no available timesloday'''
 
     # Get the index of unavailable timeslots and non nan rewards
@@ -273,12 +273,12 @@ def calculate_posterior_unavail(prior_alpha0_sigma, prior_alpha0_mu, sigma, avai
         return prior_alpha0_mu, prior_alpha0_sigma
 
     # Calculate posterior mu and sigma
-    post_alpha0_mu, post_alpha0_sigma = calculate_posteriors(X, Y, prior_alpha0_mu, sigmaInv, sigma)
+    post_alpha0_mu, post_alpha0_sigma = calculate_posteriors(X, Y, prior_alpha0_mu, alpha0_sigmaInv, sigma)
 
     return post_alpha0_mu, post_alpha0_sigma
 
 # %%
-def calculate_posterior_maineffect(prior_alpha1_sigma, prior_alpha1_mu, sigma, availability_matrix, reward_matrix, action_matrix, gs_matrix, sigmaInv):
+def calculate_posterior_maineffect(prior_alpha1_sigma, prior_alpha1_mu, sigma, availability_matrix, reward_matrix, action_matrix, gs_matrix, alpha1_sigmaInv):
     '''Calculate the posterior distribution for the case when user is available but we don't take action (action = 0)'''
 
     # Get the index of available timeslots with action = 0, and non nan rewards
@@ -293,7 +293,7 @@ def calculate_posterior_maineffect(prior_alpha1_sigma, prior_alpha1_mu, sigma, a
         return prior_alpha1_mu, prior_alpha1_sigma
 
     # Calculate posterior mu and sigma
-    post_alpha1_mu, post_alpha1_sigma = calculate_posteriors(X, Y, prior_alpha1_mu, sigmaInv, sigma)
+    post_alpha1_mu, post_alpha1_sigma = calculate_posteriors(X, Y, prior_alpha1_mu, alpha1_sigmaInv, sigma)
 
     return post_alpha1_mu, post_alpha1_sigma
 
@@ -511,9 +511,9 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     post_beta_mu, post_beta_sigma = np.copy(beta_pmean), np.copy(beta_psd)
 
     # get inverses
-    post_alpha0_sigmaInv=np.linalg.inv(alpha0_psd)
-    post_alpha1_sigmaInv=np.linalg.inv(alpha1_psd)
-    post_beta_sigmaInv=np.linalg.inv(prior_sigma)
+    alpha0_sigmaInv=np.linalg.inv(alpha0_psd)
+    alpha1_sigmaInv=np.linalg.inv(alpha1_psd)
+    beta_sigmaInv=np.linalg.inv(prior_sigma)
 
     # DS to store availability, probabilities, features, actions, posteriors and rewards
     availability_matrix = np.zeros((NDAYS * NTIMES))
@@ -590,13 +590,13 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         # Update posteriors at the end of the day
         post_beta_mu, post_beta_sigma = calculate_posterior_avail(alpha1_psd, alpha1_pmean, beta_psd, beta_pmean, sigma, 
                                                                   availability_matrix[:ts + 1], prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
-                                                                  action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_beta_sigmaInv)
+                                                                  action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], beta_sigmaInv)
 
         post_alpha0_mu, post_alpha0_sigma = calculate_posterior_unavail(alpha0_psd, alpha0_pmean, sigma, availability_matrix[:ts + 1], 
-                                                                            reward_matrix[:ts + 1], gs_matrix[:ts + 1], post_alpha0_sigmaInv)
+                                                                            reward_matrix[:ts + 1], gs_matrix[:ts + 1], alpha0_sigmaInv)
 
         post_alpha1_mu, post_alpha0_sigma = calculate_posterior_maineffect(alpha1_psd, alpha1_pmean, sigma, availability_matrix[:ts + 1], 
-                                                                                        reward_matrix[:ts + 1], action_matrix[:ts + 1], gs_matrix[:ts + 1], post_alpha1_sigmaInv)
+                                                                                        reward_matrix[:ts + 1], action_matrix[:ts + 1], gs_matrix[:ts + 1], alpha1_sigmaInv)
 
         # update value functions
         theta0, theta1, p_avail_avg = calculate_value_functions(availability_matrix[:ts + 1], action_matrix[:ts + 1], 
