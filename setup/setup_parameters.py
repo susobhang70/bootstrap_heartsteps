@@ -28,6 +28,7 @@ import rpy2.robjects.packages as rpackages
 from rpy2.robjects.packages import importr
 rpackages.importr('fda')
 import random
+from main import calculate_posterior_avail, calculate_posterior_maineffect, calculate_posterior_unavail, calculate_posteriors,load_data,load_priors
 
 np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: "%.7g" % x))
 
@@ -35,7 +36,7 @@ np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda 
 PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
 PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
 PRIOR_NEW_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
-NDAYS = 90
+NDAYS = 270
 NUSERS = 91
 NTIMES = 5
 
@@ -54,13 +55,6 @@ alpha0_pmean = np.array(banditSpec.rx2("mu0"))
 alpha0_psd = np.array(banditSpec.rx2("Sigma0"))
 
 # %%
-# Load data
-def load_data():
-    with open(PKL_DATA_PATH, "rb") as f:
-        data = pkl.load(f)
-    return data
-
-# %%
 def determine_user_state(data):
     '''Determine the state of each user at each time point'''
     availability = data[2]
@@ -77,7 +71,7 @@ def determine_user_state(data):
     features["prior_anti"] = data[14]
 
     # calculating dosage
-    features["dosage"] = data[6] # already standardized
+    features["dosage"] = data[6]/20.0 
 
     features["intercept"] = 1
 
@@ -89,46 +83,6 @@ def determine_user_state(data):
     action = data[4]
 
     return availability, fs, gs, reward, prob, action
-
-# %%
-def load_priors():
-    '''Load priors from RData file'''
-    robjects.r['load'](PRIOR_DATA_PATH)
-    priors = robjects.r['bandit.prior']
-    alpha0_pmean = np.array(banditSpec.rx2("mu0"))
-    alpha0_psd = np.array(banditSpec.rx2("Sigma0"))
-    alpha_pmean = np.array(priors.rx2("mu1"))
-    alpha_psd = np.array(priors.rx2("Sigma1"))
-    beta_pmean = np.array(priors.rx2("mu2"))
-    beta_psd = np.array(priors.rx2("Sigma2"))
-    sigma = float(priors.rx2("sigma")[0])
-
-    prior_sigma = linalg.block_diag(alpha_psd, beta_psd, beta_psd)
-    prior_mu = np.concatenate([alpha_pmean, beta_pmean, beta_pmean])
-
-    return alpha0_pmean, alpha0_psd, alpha_pmean, alpha_psd, beta_pmean, beta_psd, sigma, prior_sigma, prior_mu
-
-# %%
-def get_priors_alpha_beta(post_mu, post_sigma):
-    '''Get alpha and beta priors from mu and sigma'''
-    alpha_pmean = post_mu[:G_LEN].flatten()
-    alpha_psd = post_sigma[:G_LEN, :G_LEN]
-    beta_pmean = post_mu[-F_LEN:].flatten()
-    beta_psd = post_sigma[-F_LEN:, -F_LEN:]
-
-    return alpha_pmean, alpha_psd, beta_pmean, beta_psd
-
-# %%
-def calculate_posteriors(X, Y, prior_mu, prior_sigma, sigma):
-    '''Calculate the posterior mu and sigma'''
-
-    # Calculate posterior sigma
-    post_sigma = (sigma**2) * np.linalg.inv(X.T @ X + (sigma**2) * np.linalg.inv(prior_sigma))
-
-    # Calculate posterior mu
-    post_mu = (post_sigma @ ((X.T @ Y)/(sigma**2) + np.linalg.inv(prior_sigma) @ prior_mu) )
-
-    return post_mu, post_sigma
 
 # %%
 def calculate_posterior_l2Reg(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, day):
@@ -159,7 +113,7 @@ def calculate_posterior_l2Reg(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     return post_mu, post_sigma
 
 # %%
-def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, day):
+def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, prior_sigma):
     '''Calculate the posterior distribution when user is available'''
 
     # Get indices with non nan rewards, and where availability is 1
@@ -189,46 +143,6 @@ def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     return post_mu, post_sigma
 
 # %%
-def calculate_posterior_unavail(prior_alpha0_sigma, prior_alpha0_mu, sigma, availability_matrix, reward_matrix, gs_matrix, day):
-    '''Calculate the posterior distribution for the case when there are no available timesloday'''
-
-    # Get the index of unavailable timeslots and non nan rewards
-    unavail_idx = np.logical_and(~np.isnan(reward_matrix), availability_matrix == 0)
-
-    # the feature matrix, and reward matrix
-    X = gs_matrix[unavail_idx]
-    Y = reward_matrix[unavail_idx]
-
-    # If there are no unavailable datapoints, return the prior
-    if len(Y) == 0:
-        return prior_alpha0_mu, prior_alpha0_sigma
-
-    # Calculate posterior mu and sigma
-    post_alpha0_mu, post_alpha0_sigma = calculate_posteriors(X, Y, prior_alpha0_mu, prior_alpha0_sigma, sigma)
-
-    return post_alpha0_mu, post_alpha0_sigma
-
-# %%
-def calculate_posterior_maineffect(prior_alpha1_sigma, prior_alpha1_mu, sigma, availability_matrix, reward_matrix, action_matrix, gs_matrix, day):
-    '''Calculate the posterior distribution for the case when user is available but we don't take action (action = 0)'''
-
-    # Get the index of available timeslots with action = 0, and non nan rewards
-    maineff_idx = np.logical_and.reduce((availability_matrix == 1, action_matrix == 0, ~np.isnan(reward_matrix)))
-
-    # the feature matrix, and reward matrix
-    X = gs_matrix[maineff_idx]
-    Y = reward_matrix[maineff_idx]
-
-    # If there are no unavailable datapoints, return the prior
-    if len(Y) == 0:
-        return prior_alpha1_mu, prior_alpha1_sigma
-
-    # Calculate posterior mu and sigma
-    post_alpha1_mu, post_alpha1_sigma = calculate_posteriors(X, Y, prior_alpha1_mu, prior_alpha1_sigma, sigma)
-
-    return post_alpha1_mu, post_alpha1_sigma
-
-# %%
 def run_algorithm(data):
     '''Run the algorithm for each user and each bootstrap'''
     rewards=data[:,5]
@@ -242,6 +156,11 @@ def run_algorithm(data):
     post_alpha0_mu, post_alpha0_sigma = np.copy(alpha0_pmean), np.copy(alpha0_psd)
     post_alpha1_mu, post_alpha1_sigma = np.copy(alpha1_pmean), np.copy(alpha1_psd)
     post_actionCenter_mu, post_actionCenter_sigma = np.copy(prior_mu), np.copy(prior_sigma)    
+
+    # get inverses
+    alpha0_sigmaInv=np.linalg.inv(alpha0_psd)
+    alpha1_sigmaInv=np.linalg.inv(alpha1_psd)
+    post_actionCenter_sigmaInv=np.linalg.inv(prior_sigma)
 
     # DS to store availability, probabilities, features, actions, posteriors and rewards
     availability_matrix = np.zeros((NDAYS * NTIMES))
@@ -301,13 +220,13 @@ def run_algorithm(data):
         # Update posteriors at the end of the day
         post_actionCenter_mu, post_actionCenter_sigma = calculate_posterior_avail(alpha1_psd, alpha1_pmean, beta_psd, beta_pmean, sigma, 
                                                                   availability_matrix[:ts + 1], prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
-                                                                  action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], day)
+                                                                  action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], post_actionCenter_sigmaInv)
     
         post_alpha0_mu, post_alpha0_sigma = calculate_posterior_unavail(alpha0_psd, alpha0_pmean, sigma, availability_matrix[:ts + 1], 
-                                                                            reward_matrix[:ts + 1], gs_matrix[:ts + 1], day)
+                                                                            reward_matrix[:ts + 1], gs_matrix[:ts + 1], alpha0_sigmaInv)
 
         post_alpha1_mu, post_alpha0_sigma = calculate_posterior_maineffect(alpha1_psd, alpha1_pmean, sigma, availability_matrix[:ts + 1], 
-                                                                                        reward_matrix[:ts + 1], action_matrix[:ts + 1], gs_matrix[:ts + 1], day)
+                                                                                        reward_matrix[:ts + 1], action_matrix[:ts + 1], gs_matrix[:ts + 1], alpha1_sigmaInv)
 
 
     l2Reg_mu, l2Reg_sigma = calculate_posterior_l2Reg(alpha1_psd, alpha1_pmean, beta_psd, beta_pmean, sigma, 
@@ -337,45 +256,44 @@ def get_residual_pairs(results, baseline="Prior"):
     baseline_thetas=[]
 
     for user in range(NUSERS):
-        #lastTime=np.where(data[:,1]==0)[0] # if decision.time = 0, then they would not be available after right?
-        posterior_user_T=results[user]['post_beta_mu'][NDAYS*NTIMES-1]
+        # we care about l2 fit for bootstrapping
+        posterior_user_T=results[user]['l2Reg_mu'] 
+        alpha=posterior_user_T[:G_LEN].flatten()
+        beta=posterior_user_T[-F_LEN:].flatten()
+
+        # calculate residuals
         for day in range(NDAYS):
             for time in range(NTIMES):
                 ts = (day) * 5 + time
                 gs=results[user]['gs'][ts]
                 fs=results[user]['fs'][ts]
-                prob=results[user]['prob'][ts]
                 action=results[user]['action'][ts]
                 reward=results[user]['reward'][ts]
                 available=results[user]['availability'][ts]
-
-                # get estimated reward,
-                alpha = posterior_user_T[:G_LEN].flatten()
-                alpha2=posterior_user_T[G_LEN:G_LEN+F_LEN].flatten()
-                beta = posterior_user_T[-F_LEN:].flatten()
-    
-                estimated_reward = gs @ alpha + prob * (fs @ alpha2) + (action - prob) * (fs @ beta)
+        
+                # get estimated reward, using l2 fit.
+                estimated_reward = gs @ alpha + action * (fs @ beta)
                 if available and not np.isnan(reward):
                         residual_matrix[user, ts]=reward-estimated_reward
 
+        # set the 'baseline' or parameter vector with which we generate environment rewards in bootstrap. In particular, the L2 fit at time T is used.
         baseline_theta=np.zeros(F_LEN+G_LEN)
         # set beta
         if baseline=="Prior":
             baseline_theta[-F_LEN:]=prior_mu[-F_LEN:]
-        elif baseline=="ZeroAtAll":
+        elif baseline=="ZeroAtAll": # to be explicit
             baseline_theta[-F_LEN:]=np.zeros(prior_mu[-F_LEN:].shape)
         elif baseline=="Posterior":
-            baseline_theta[-F_LEN:]=posterior_user_T[-F_LEN:].flatten()
+            baseline_theta[-F_LEN:]=beta
         # 0 out coef at baseline coef
         elif baseline in F_KEYS:
-            baseline_theta[-F_LEN:]=posterior_user_T[-F_LEN:].flatten()
+            baseline_theta[-F_LEN:]=beta
             index=F_KEYS.index(baseline)
             baseline_theta[G_LEN+index]=0.0
 
         # set alpha
-        baseline_theta[:G_LEN]=results[user]['l2Reg_mu'][:G_LEN].flatten()
+        baseline_theta[:G_LEN]=alpha
 
-        # remove middle alpha
         baseline_thetas.append(baseline_theta)
     return residual_matrix, baseline_thetas
 
@@ -396,6 +314,11 @@ for i in range(1,5):
 
 baselines={"prior": baseline_prior, "posterior": baseline_Posterior, "all0TxEffect": baseline_0Tx, "0TxEffect_beta_i": baseline_txEffectForInteresting}
 
+# derived from avg dosage in data: 
+# - np.sum(np.isnan(data[:,:,6])) = 0
+# - data[:,:,6].shape -> 91 x 1350
+# - np.sum(data[:,:,6])/(91*1350) = 1.9805890349783688
+
 # write result!
 with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/baseline_parameters.pkl', 'wb') as handle:
     pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
@@ -405,3 +328,6 @@ with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael
         
 with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl', 'wb') as handle:
     pkl.dump(result, handle, protocol=pkl.HIGHEST_PROTOCOL)
+
+import pdb
+pdb.set_trace()

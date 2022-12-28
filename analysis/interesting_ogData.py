@@ -116,27 +116,7 @@ def load_original_run(output_path):
         original_result=pkl.load(handle)#, handle, protocol=pkl.HIGHEST_PROTOCOL)
     return original_result
 
-# %%
-###################################################### 
-##### input in user and b.s. version of the user #####
-######################################################
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--index", type=int, default=1, required=True, help="Index for which tx effect coef to test interestingness on (betaIndex)")
-    parser.add_argument("-o", "--output", type=str, default="./output/interestingness/", required=False, help="Output file directory name")
-    parser.add_argument("-l", "--log", type=str, default="./log", required=False, help="Log file directory name")
-    parser.add_argument("-or", "--original_result", type=str, default="./init/original_result_91.pkl", required=False, help="Pickle file for original results")
-    args = parser.parse_args()
-
-    var=F_KEYS[args.index+1]
-    betaIndex=args.index+1
-    print("Interestingness on "+var)
-    baseOutput=os.path.join(args.output, var)
-
-    # read in results from original run and bootstrap
-    original_result=load_original_run(args.original_result)
-
-    # Run algorithm
+def getInterestingness(baseOutput, result, betaIndex):
     allRes=[]
     gtr80=[]
     sumNotVars=[]
@@ -148,14 +128,15 @@ def main():
     nTimesNotAndYes=50
 
     interestingUsers=[]
-    for i in range(NUSERS):
+    for i in range(len(result)):
         isInteresting=False
         output=baseOutput+"/user_"+str(i)
         # Prepare directory for output and logging
+        print("logging in output dir "+output)
         if not os.path.exists(output):
             os.makedirs(output)
         
-        res=plotResult_AverageInterestingness(original_result[i], output, betaIndex)
+        res=plotResult_AverageInterestingness(result[i], output, betaIndex)
         allRes.append(res)
 
         gtr80.append(res['interestingness']['proportionInteresting'])
@@ -180,7 +161,6 @@ def main():
     print("N interesting users is "+str(nInteresting))
     print(interestingUsers)
 
-
     a_file = open(baseOutput+"/interestingUsers.csv", "w")
     header="InterestingUser, Proportion of PostTx(1)>PostTx(0), sumNotVar, sumVar \n"
     a_file.write(header)
@@ -188,6 +168,28 @@ def main():
         statisticsLine=str(user)+","+str(gtr80[user])+ ","+str(sumNotVars[user])+ ","+str(sumVars[user])
         a_file.write(statisticsLine+"\n")
     a_file.close()
+
+# %%
+###################################################### 
+##### input in user and b.s. version of the user #####
+######################################################
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--index", type=int, default=1, required=True, help="Index for which tx effect coef to test interestingness on (betaIndex)")
+    parser.add_argument("-o", "--output", type=str, default="./output/interestingness/", required=False, help="Output file directory name")
+    parser.add_argument("-or", "--original_result", type=str, default="./init/original_result_91.pkl", required=False, help="Pickle file for original results")
+    args = parser.parse_args()
+
+    var=F_KEYS[args.index+1]
+    betaIndex=args.index+1
+    print("Interestingness on "+var)
+    baseOutput=os.path.join(args.output, var, "original")
+
+    # read in results from original run and bootstrap
+    original_result=load_original_run(args.original_result)
+
+    # Run algorithm
+    getInterestingness(baseOutput, original_result, betaIndex)
 
     import pdb
     pdb.set_trace()

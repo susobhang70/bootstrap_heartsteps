@@ -97,7 +97,7 @@ def load_initial_run(residual_path, baseline_thetas_path, baseline):
     elif baseline == "Zero":
         baseline_thetas = baseline_pickle["all0TxEffect"]
     elif baseline in F_KEYS:
-        index=F_KEYS.equals(baseline)
+        index=F_KEYS.equals(baseline)#.index in 3.9, .equals in 3.7
         baseline_thetas = baseline_pickle["0TxEffect_beta_i"][index]
     else:
         raise ValueError("Invalid baseline")
@@ -149,7 +149,9 @@ def load_priors():
     sigma = float(priors.rx2("sigma")[0])
 
     prior_sigma = linalg.block_diag(alpha_psd, beta_psd, beta_psd)
-    return alpha0_pmean, alpha0_psd, alpha_pmean, alpha_psd, beta_pmean, beta_psd, sigma, prior_sigma
+    prior_mu = np.concatenate([alpha_pmean, beta_pmean, beta_pmean])
+
+    return alpha0_pmean, alpha0_psd, alpha_pmean, alpha_psd, beta_pmean, beta_psd, sigma, prior_sigma, prior_mu
 
 # %%
 def get_priors_alpha_beta(post_mu, post_sigma):
@@ -500,7 +502,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     '''Run the algorithm for each user and each bootstrap'''
 
     # Load priors
-    alpha0_pmean, alpha0_psd, alpha1_pmean, alpha1_psd, beta_pmean, beta_psd, sigma, prior_sigma = load_priors()
+    alpha0_pmean, alpha0_psd, alpha1_pmean, alpha1_psd, beta_pmean, beta_psd, sigma, prior_sigma,prior_mu = load_priors()
 
     # Initializing dosage to first dosage value (can be non-zero if user was already in the trial)
     dosage = data[0][6]
