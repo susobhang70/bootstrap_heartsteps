@@ -14,11 +14,14 @@ set -x
 date
 cdir=$(pwd)
 
-source /n/home12/susobhan/.bashrc
-conda activate /n/home12/susobhan/.conda/envs/heartsteps
+#module load Anaconda3/2020.11
+#source ~/.bashrc
+#conda deactivate
+#conda deactivate # no env by this point from ana and src
+#module load R/4.0.2-fasrc01
+source activate heartsteps
+export NUMBA_CACHE_DIR=‘/tmp’
 
-module load R/4.0.2-fasrc01
-
-python run_boostrap.py ${SLURM_ARRAY_TASK_ID}
+python run_bootstrap.py ${SLURM_ARRAY_TASK_ID}
 
 # To run first 4 experiments, use: sbatch --array=0-3 job.run_boostrap.sh
