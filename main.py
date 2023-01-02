@@ -198,7 +198,7 @@ def calculate_post_prob(ts, data, fs, beta_pmean, beta_psd, eta = 0):
 
     # Clip the probability
     phi_prob = clip(post_prob)
-    
+
     return phi_prob
 
 # %%
@@ -434,8 +434,10 @@ def calculate_value_functions(availability_matrix, action_matrix, fs_matrix, gs_
     pZ = get_state_probabilities(F, G)
 
     # calculate mean p(availability)
-    p_avail_avg = np.mean(AV)
-    
+    p_avail_avg=0.0
+    if len(AV)!=0:
+        p_avail_avg = np.mean(AV)
+
     # get rewards vectors for each case: r_i(x,a)
     #r_0(x,0)
     r00 = get_empirical_rewards_estimate(0, 0, F, G, pZ, beta_mu, alpha0_mu, alpha1_mu)
@@ -478,9 +480,10 @@ def calculate_value_functions(availability_matrix, action_matrix, fs_matrix, gs_
 
 def calculate_eta(theta0, theta1, dosage, p_avail, ts, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
 
+    eta1=etaInit(float(dosage))[0]*(gamma)/(1-gamma)
     # If less than 10 time steps, use etaInit from HeartStepsV1
     if ts < 10:
-        return etaInit(float(dosage))[0]
+        return eta1
 
     cur_dosage_eval0 = dosage_basis.evaluate(dosage * lamb)
     cur_dosage_eval1 = dosage_basis.evaluate(dosage * lamb + 1)
@@ -493,7 +496,7 @@ def calculate_eta(theta0, theta1, dosage, p_avail, ts, psed=PSED, w=W, gamma=GAM
     etaHat = val * (1-psed) * (gamma)
     # etaHat = val * (1-psed) * (1 - gamma)
 
-    eta = w * etaHat + (1-w) * etaInit(float(dosage))[0]
+    eta = w * etaHat + (1-w) * eta1
 
     return eta
 
@@ -556,13 +559,13 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             availability_matrix[ts] = availability
 
             # If user is available
-            action, prob_fsb = 0, 0
+            action, prob_fsb = 0, 0#.1
             if availability == 1:
                 # Calculate probability of (fs x beta) > n
                 eta = calculate_eta(theta0, theta1, dosage, p_avail_avg, ts)
 
                 #print("\tAvailable: ETA is " + str(eta) + " . Dosage: " + str(dosage))
-                prob_fsb = calculate_post_prob(day, data, fs, post_beta_mu, post_beta_sigma, eta)
+                prob_fsb = calculate_post_prob(ts, data, fs, post_beta_mu, post_beta_sigma, eta)
 
                 # Sample action with probability prob_fsb from bernoulli distribution
                 action = select_action(prob_fsb)
