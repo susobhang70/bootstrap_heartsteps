@@ -29,16 +29,18 @@ from rpy2.robjects.packages import importr
 rpackages.importr('fda')
 import random
 from main import calculate_posterior_avail, calculate_posterior_maineffect, calculate_posterior_unavail, calculate_posteriors,load_data,load_priors
-
+import math
+from posterior_check import rindex
 np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: "%.7g" % x))
 
 # %%
 PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
 PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
 PRIOR_NEW_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
-NDAYS = 270
+NDAYS = 90
 NUSERS = 91
 NTIMES = 5
+T=NDAYS*NTIMES
 
 F_KEYS = ["intercept", "dosage", "engagement", "other_location", "variation"]
 F_LEN = len(F_KEYS)
@@ -55,34 +57,36 @@ alpha0_pmean = np.array(banditSpec.rx2("mu0"))
 alpha0_psd = np.array(banditSpec.rx2("Sigma0"))
 
 # %%
-def determine_user_state(data):
-    '''Determine the state of each user at each time point'''
-    availability = data[2]
+# def determine_user_state(data):
+#     '''Determine the state of each user at each time point'''
+#     availability = data[2]
 
-    features = {}
+#     features = {}
 
-    features["engagement"] = data[7]
-    features["other_location"] = data[8]
-    # features["work_location"] = data[9]
-    features["variation"] = data[10]
-    features["temperature"] = data[11]
-    features["logpresteps"] = data[12]
-    features["sqrt_totalsteps"] = data[13]
-    features["prior_anti"] = data[14]
+#     features["engagement"] = data[7]
+#     features["other_location"] = data[8]
+#     # features["work_location"] = data[9]
+#     features["variation"] = data[10]
+#     features["temperature"] = data[11]
+#     features["logpresteps"] = data[12]
+#     features["sqrt_totalsteps"] = data[13]
+#     features["prior_anti"] = data[14]
 
-    # calculating dosage
-    features["dosage"] = data[6]/20.0 
+#     # calculating dosage
+#     features["dosage"] = data[6]/20.0 
 
-    features["intercept"] = 1
+#     features["intercept"] = 1
 
-    fs = np.array([features[k] for k in F_KEYS])
-    gs = np.array([features[k] for k in G_KEYS])
+#     fs = np.array([features[k] for k in F_KEYS])
+#     gs = np.array([features[k] for k in G_KEYS])
 
-    reward = data[5]
-    prob = data[3]
-    action = data[4]
+#     reward = data[5]
+#     prob = data[3]
+#     action = data[4]
 
-    return availability, fs, gs, reward, prob, action
+#     return availability, fs, gs, reward, prob, action
+
+from dosage_checks import determine_user_state
 
 # %%
 def calculate_posterior_l2Reg(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma, availability_matrix, prob_matrix, reward_matrix, action_matrix, fs_matrix, gs_matrix, day):
@@ -143,7 +147,7 @@ def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     return post_mu, post_sigma
 
 # %%
-def run_algorithm(data):
+def run_algorithm(data,user):
     '''Run the algorithm for each user and each bootstrap'''
     rewards=data[:,5]
     rewards=list(rewards[~np.isnan(rewards)])
@@ -183,6 +187,8 @@ def run_algorithm(data):
     post_actionCenter_mu_matrix = np.zeros((NDAYS * NTIMES, 2*F_LEN +G_LEN))
     post_actionCenter_sigma_matrix = np.zeros((NDAYS * NTIMES, 2*F_LEN +G_LEN ,  2*F_LEN +G_LEN ))
 
+    dosage = data[0][6]
+
     for day in range(NDAYS):
         # loop for each decision time during the day
         for time in range(NTIMES):
@@ -191,7 +197,10 @@ def run_algorithm(data):
             ts = (day) * 5 + time
             
             # State of the user at time ts
-            availability, fs, gs, reward, prob_fsb, action = determine_user_state(data[ts])
+            #availability, fs, gs, reward, prob_fsb, action = determine_user_state(data[ts])
+            availability, fs, gs, dosage, reward, prob_fsb, action = determine_user_state(data[ts], dosage, action_matrix[ts-1], useOldDosage=False)
+            #not use old dosage means recompute `as intended`, 
+            #use old dosage means used the one in the data
 
             # Save user's availability
             availability_matrix[ts] = availability
@@ -201,8 +210,6 @@ def run_algorithm(data):
             action_matrix[ts] = action
 
             # Save features and state
-            #if np.isnan(reward) and availability==1:
-            #    reward=imputeRewardValue
             reward_matrix[ts] = reward
 
             fs_matrix[ts] = fs
@@ -228,10 +235,12 @@ def run_algorithm(data):
         post_alpha1_mu, post_alpha0_sigma = calculate_posterior_maineffect(alpha1_psd, alpha1_pmean, sigma, availability_matrix[:ts + 1], 
                                                                                         reward_matrix[:ts + 1], action_matrix[:ts + 1], gs_matrix[:ts + 1], alpha1_sigmaInv)
 
-
+    #idx = np.where(data[:T,2]==1)[0]
+    ndata=rindex(data[:T, 2], 1)+1#np.where(data[:T,1]==0)[0] #first time the user is out
+    print('user '+str(user)+ '. last ts '+str(ndata)) # last time that we are available, since ending index is exlcusive
     l2Reg_mu, l2Reg_sigma = calculate_posterior_l2Reg(alpha1_psd, alpha1_pmean, beta_psd, beta_pmean, sigma, 
-                                                                  availability_matrix[:ts + 1], prob_matrix[:ts + 1], reward_matrix[:ts + 1], 
-                                                                  action_matrix[:ts + 1], fs_matrix[:ts + 1], gs_matrix[:ts + 1], day)
+                                                                  availability_matrix[:ndata], prob_matrix[:ndata], reward_matrix[:ndata], 
+                                                                  action_matrix[:ndata], fs_matrix[:ndata], gs_matrix[:ndata], day)
 
     result = {"availability": availability_matrix, "prob": prob_matrix, "action": action_matrix, "reward": reward_matrix,
             "post_alpha0_mu": post_alpha0_mu_matrix, "post_alpha0_sigma": post_alpha0_sigma_matrix,
@@ -247,8 +256,9 @@ def initial_run():
     data = load_data()
     allResults=[]
     for i in range(NUSERS):
-        allResults.append(run_algorithm(data[i]))
+        allResults.append(run_algorithm(data[i], i))
     return allResults,data
+
 
 def get_residual_pairs(results, baseline="Prior"):
     alpha0_pmean, alpha0_psd, alpha1_pmean, alpha1_psd, beta_pmean, beta_psd, sigma, prior_sigma, prior_mu = load_priors()
@@ -261,8 +271,12 @@ def get_residual_pairs(results, baseline="Prior"):
         alpha=posterior_user_T[:G_LEN].flatten()
         beta=posterior_user_T[-F_LEN:].flatten()
 
+        #idx = np.where(data[:T,2]==1)[0]
+        ndata=rindex(results[user]['availability'][:T], 1)+1#np.where(data[:T,1]==0)[0] #first time the user is out
+        last_day=math.floor((ndata-1)/NTIMES) #ndata is the ts index of the last available time, reset the -1, then /NTIMES to get the day of the last available time.
+
         # calculate residuals
-        for day in range(NDAYS):
+        for day in range(NDAYS): #will only matter for up to last_day^^
             for time in range(NTIMES):
                 ts = (day) * 5 + time
                 gs=results[user]['gs'][ts]
@@ -319,7 +333,7 @@ baselines={"prior": baseline_prior, "posterior": baseline_Posterior, "all0TxEffe
 # - data[:,:,6].shape -> 91 x 1350
 # - np.sum(data[:,:,6])/(91*1350) = 1.9805890349783688
 
-# write result!
+# # write result!
 with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/baseline_parameters.pkl', 'wb') as handle:
     pkl.dump(baselines, handle, protocol=pkl.HIGHEST_PROTOCOL)
         
@@ -328,6 +342,18 @@ with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael
         
 with open('/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/original_result_91.pkl', 'wb') as handle:
     pkl.dump(result, handle, protocol=pkl.HIGHEST_PROTOCOL)
+
+def computeAvgDosage(result, T):
+    s=0
+    for i in range(len(result)):
+        s=s+np.sum(result[i]['fs'][:T,1]*20.)
+    return s/(len(result)*T)
+
+print("avg dosage 1350 is "+str(computeAvgDosage(result,1350)))
+print("avg dosage 450 is "+str(computeAvgDosage(result,450)))
+
+print(np.sum(data[:,:,6])/(91*1350))
+print(np.sum(data[:,:450,6])/(91*450))
 
 import pdb
 pdb.set_trace()

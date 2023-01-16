@@ -58,7 +58,7 @@ dosage_eval = dosage_eval[:, :, 0]
 # setup dosage matrix instead of np.repeat in calculating marginal rewards
 dosage_matrix = []
 for dosage in dosage_grid:
-    dosageI = np.repeat(dosage/20.0, NTIMES*NDAYS)
+    dosageI = np.repeat(dosage/20.0, NTIMES*3000)
     dosage_matrix.append(dosageI)
 dosage_matrix = np.matrix(dosage_matrix)
     
@@ -347,7 +347,6 @@ def get_empirical_rewards_estimate(target_availability, target_action, fs_matrix
 
     # Compute r(x, a) i.e. r_{target_availability}(x, target_action)
     for i in range(DOSAGE_GRID_LEN):
-
         # modifying feature matrices to have the dosage from the dosage_grid
         fs[:, 1] = dosage_matrix[i,:len(fs)]#np.repeat(dosage_grid[i] / 20.0, len(fs))
         gs[:, 4] = dosage_matrix[i,:len(fs)]#np.repeat(dosage_grid[i] / 20.0, len(fs))
@@ -479,7 +478,6 @@ def calculate_value_functions(availability_matrix, action_matrix, fs_matrix, gs_
 # %%
 
 def calculate_eta(theta0, theta1, dosage, p_avail, ts, psed=PSED, w=W, gamma=GAMMA, lamb=LAMBDA):
-
     eta1=etaInit(float(dosage))[0]*(gamma)/(1-gamma)
     # If less than 10 time steps, use etaInit from HeartStepsV1
     if ts < 10:
@@ -646,6 +644,8 @@ def main():
 
     # Load data
     data = load_data()
+    #zeroDoseUsers=np.where(np.sum(data[:,:,6],axis=1)==0)[0]
+    #data = np.delete(data,zeroDoseUsers, axis=0)
 
     # Prepare directory for output and logging
     args.user_specific=False

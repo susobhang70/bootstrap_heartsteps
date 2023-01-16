@@ -14,7 +14,7 @@ set -x
 date
 cdir=$(pwd)
 
-#module load Anaconda3/2020.11
+module load Anaconda3/2020.11
 #source ~/.bashrc
 #conda deactivate
 #conda deactivate # no env by this point from ana and src
