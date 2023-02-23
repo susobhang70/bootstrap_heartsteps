@@ -18,9 +18,9 @@ rpackages.importr('fda')
 np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: "%.7g" % x))
 
 # %%
-PKL_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/all91.pkl"
-PRIOR_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-prior.RData"
-PRIOR_NEW_DATA_PATH = "/Users/raphaelkim/Dropbox (Harvard University)/HeartStepsV2V3/Raphael/bandit-spec-new.RData"
+PKL_DATA_PATH = "./init/all91.pkl"
+PRIOR_DATA_PATH = "./init/bandit-prior.RData"
+PRIOR_NEW_DATA_PATH = "./init/bandit-spec-new.RData"
 NDAYS = 90
 NUSERS = 91
 NTIMES = 5
@@ -34,7 +34,7 @@ G_KEYS = ["intercept", "temperature", "logpresteps", "sqrt_totalsteps", "dosage"
 G_LEN = len(G_KEYS)
 
 E0 = 0.2
-E1 = 0.1
+E1 = 0.2
 
 MIN_DOSAGE = 0
 MAX_DOSAGE = 20
@@ -94,11 +94,15 @@ def load_initial_run(residual_path, baseline_thetas_path, baseline):
         baseline_thetas = baseline_pickle["prior"]
     elif baseline == "Posterior":
         baseline_thetas = baseline_pickle["posterior"]
+        print(baseline)
+        print(baseline_thetas[0:5])
     elif baseline == "Zero":
         baseline_thetas = baseline_pickle["all0TxEffect"]
     elif baseline in F_KEYS:
-        index=F_KEYS.equals(baseline)#.index in 3.9, .equals in 3.7
+        index=F_KEYS.index(baseline)#.index in 3.9, .equals in 3.7
+        print(baseline)
         baseline_thetas = baseline_pickle["0TxEffect_beta_i"][index]
+        print(baseline_thetas[0:5])
     else:
         raise ValueError("Invalid baseline")
 
@@ -177,7 +181,8 @@ def sample_lr_params(alpha_pmean, alpha_psd, beta_pmean, beta_psd, sigma):
 # %%
 def clip(x, E0=E0, E1=E1):
     '''Clipping function'''
-    return min(1 - E0, max(x, E1))
+    #return min(1 - E0, max(x, E1))
+    return min(1-E1, E0+max(x-.5,0)*(1-E0)/.5)
 
 # %%
 def calculate_post_prob(ts, data, fs, beta_pmean, beta_psd, eta = 0):
@@ -628,7 +633,8 @@ def main():
     parser.add_argument("-u", "--user", type=int, required=True, help="User number")
     parser.add_argument("-b", "--bootstrap", type=int, required=True, help="Bootstrap number")
     parser.add_argument("-s", "--seed", type=int, required=True, help="Random seed")
-    parser.add_argument("-us", "--user_specific", default=False, type=bool, required=False, help="User specific experiment")
+    parser.add_argument("-userBIdx", "--userBootstrapIndex", type=int, required=True, help="User's bs index")
+    parser.add_argument("-pec", "--user_specific", default=False, type=bool, required=False, help="User specific experiment")
     parser.add_argument("-o", "--output", type=str, default="./output", required=False, help="Output file directory name")
     parser.add_argument("-l", "--log", type=str, default="./log", required=False, help="Log file directory name")
     parser.add_argument("-bi", "--baseline", type=str, default="Prior", required=False, help="Baseline of interest. If you want to run interestingness analysis, put in the F_KEY as a string to get thetas for that tx Effect coef 0ed out.")
@@ -648,12 +654,16 @@ def main():
     #data = np.delete(data,zeroDoseUsers, axis=0)
 
     # Prepare directory for output and logging
-    args.user_specific=False
+    #args.user_specific=False
     print(args.user_specific)
 
     # note if baseline in F_KEYS, we have an interestingness bootstrap (by nature of baseline thetas used)
-    output_dir = os.path.join(args.output, "Bootstrap-" + str(args.bootstrap)+"_Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "user-"+str(args.user))
-    log_dir = os.path.join(args.log, "Bootstrap-" + str(args.bootstrap)+"_Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "user-"+str(args.user))
+    output_dir = os.path.join(args.output, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "Bootstrap-" + str(args.bootstrap), "user-"+str(args.userBootstrapIndex))
+    log_dir = os.path.join(args.log, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "Bootstrap-" + str(args.bootstrap), "user-"+str(args.userBootstrapIndex))
+
+    if args.user_specific:
+        output_dir = os.path.join(args.output, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific)+"_User-"+str(args.user), "Bootstrap-" + str(args.bootstrap))
+        log_dir = os.path.join(args.log, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific)+"_User-"+str(args.user), "Bootstrap-" + str(args.bootstrap))
     print(output_dir)
     print(log_dir)
     if not os.path.exists(output_dir):
@@ -663,11 +673,12 @@ def main():
 
     residual_matrix=residual_matrix[args.user]
     # need to make it s.t. we are doing different seq of seeds in user specific case.
-    if args.user_specific:
-        residual_matrix = resample_user_residuals(residual_matrix, args.user)
+    #if args.user_specific:
+    #    residual_matrix = resample_user_residuals(residual_matrix, args.user)
 
     # Run algorithm
     run_algorithm(data[args.user], args.user, args.bootstrap, args.user_specific, residual_matrix, baseline_thetas[args.user], output_dir, log_dir)
+    print("finished")
 
 # %%
 
