@@ -1,4 +1,7 @@
+### feeder script for running population bootstrap ###
+
 import subprocess
+from subprocess import Popen
 import numpy as np
 import sys
 import os
@@ -9,24 +12,30 @@ NUSERS = 91
 F_KEYS=["intercept", "dosage", "engagement", "other_location", "variation"]
 
 def main():
-    idx = int(sys.argv[1])
-    experiment = 2 #max array size AND index is 10k. we could split 10k into 4 for 2.5 k jobs each, leading to ~28 bootstrap resamples. this is rather small, so opt to fill in experiment
+    offset=0
+    offset=10000
+    offset=20000
+    offset=30000
+    #offset=40000
+    #offset=50000
 
-    # Define the parameters
-    boot_run = idx // NUSERS
+    idx = int(sys.argv[1])+offset
+    #experiment = 4 
+    #baseline = F_KEYS[experiment]
+    baseline = "Zero"
 
-    # Set the seed
+    boot_run = idx // NUSERS #which bootstrap pop to run in
+    # random subset w/ replacement
     np.random.seed(boot_run)
+    bootstrapped_users = [i for i in range(NUSERS)]
+    bootstrapped_users = np.random.choice(bootstrapped_users, len(bootstrapped_users))
 
-    # Bootstrap user indices
-    # This will be consistent across runs as we set the seed
-    bootstrapped_users = np.random.choice(range(NUSERS), NUSERS)
-
-    # Get the user index
-    useridx = idx % NUSERS
+    # Get the user index in the bootstrapped pop, and real user to run
+    useridx = idx % (NUSERS) 
     user = bootstrapped_users[useridx]
-    baseline = F_KEYS[experiment]
-    subprocess.run(f'python main.py -u {user} -b {boot_run} -s {idx} -bi {baseline}', shell=True) 
+
+    subprocess.run(f'python main.py -u {user} -b {boot_run} -s {idx} -userBIdx {useridx} -bi {baseline}', shell=True) 
+    print("boot run "+str(boot_run)+" for user "+str(useridx)+ ". idx is "+str(idx)+ ". Baseline is "+baseline)
 
 if __name__ == "__main__":
     main()

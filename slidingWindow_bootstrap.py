@@ -57,18 +57,22 @@ def rindex(l, value):
             return i
     return -1
 
+
 def readResult(outputDir, userSpec):
     results=[]
     collectedIds=[]
     if userSpec:
-        dirs = os.listdir(outputDir)
-        if len(dirs) > 0:
-            userFile = [f for f in dirs if ".pkl" in f]
-            userFilePath=outputDir+"/"+userFile[0]
-            userId=int(userFile[0].split("_")[1])
-            collectedIds.append(userId)
-            res_user=pkl.load(open(userFilePath,"rb"))
-            results.append(res_user)
+        B=500
+        for b in range(B):
+            d=os.path.join(outputDir, "Bootstrap-"+str(b))
+            ff=os.listdir(d)
+            if len(ff) > 0:
+                userFile = [f for f in ff if ".pkl" in f]
+                userFilePath=d+"/"+userFile[0]
+                userId=int(userFile[0].split("_")[1])
+                collectedIds.append(userId)
+                res_user=pkl.load(open(userFilePath,"rb"))
+                results.append(res_user)
     else:
         dirs = os.listdir(outputDir)
         dirs = [f for f in dirs if not os.path.isfile(outputDir+'/'+f)] #Filtering only the files.
@@ -108,8 +112,8 @@ def main():
     output_dir = os.path.join(args.output, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "Bootstrap-" + str(args.bootstrap))
     log_dir = os.path.join(args.log, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "Bootstrap-" + str(args.bootstrap))
     if args.user_specific:
-        output_dir = os.path.join(args.output, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific)+"_User-"+str(args.user), "Bootstrap-" + str(args.bootstrap))
-        log_dir = os.path.join(args.log, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific)+"_User-"+str(args.user), "Bootstrap-" + str(args.bootstrap))
+        output_dir = os.path.join(args.output, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific)+"_User-"+str(args.user))# , "Bootstrap-" + str(args.bootstrap))
+        log_dir = os.path.join(args.log, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific)+"_User-"+str(args.user))#, "Bootstrap-" + str(args.bootstrap))
     print(output_dir)
     print(log_dir)
     if not os.path.exists(output_dir):
@@ -123,6 +127,9 @@ def main():
     if args.baseline in F_KEYS: #if engagement,...
         indexFS=F_KEYS.index(args.baseline)
         txEffectState=True
+    if args.baseline=="Zero":
+        txEffectState=True
+        indexFS=2
 
     # read in results from original run and bootstrap
     bs_result, realIds=readResult(output_dir, args.user_specific)
@@ -130,13 +137,16 @@ def main():
     
     print(len(bs_result))
     #delta setting here does not matter. just computing r1/r2 here first.
-    delta1=.5
-    delta2=.2
+    delta1=.75
+    delta2=.4
 
     if txEffectState:
         r1s=[]
         r2s=[]
         rawR2s=[]
+        r3s=[]
+        r4s=[]
+        rawR4s=[]
         effectRatios=[]
         effectIds=[]
         interestingR2s=[]
@@ -149,9 +159,12 @@ def main():
             r1s.append(result['r1'])
             r2s.append(result['r2'])
             rawR2s.append(result['rawR2'])
+            r3s.append(result['r3'])
+            r4s.append(result['r4'])
+            rawR4s.append(result['rawR4'])
             effectRatios.append(result['stdEffectRatio'])
             effectIds.append(realIds[i])
-            interestings.append(result['isInteresting'])
+            #interestings.append(result['isInteresting'])
             if result['r1']!=None and result['r2']!=None:
                 pass
 #                if result['isInteresting']:
@@ -165,6 +178,9 @@ def main():
                 nNone=nNone+1
 
         print(nNone)
+        print("reses")
+        print(r3s)
+        print(r4s)
  
         a_file_name=output_dir+"/results.csv"
         b_file_name=output_dir+"/statistics.csv"
@@ -176,10 +192,10 @@ def main():
 
         # save a file in each dir:
         a_file = open(a_file_name, "w")
-        header="bootstrapIndex, trueId, effectRatio, r1, r2, rawR2\n"
+        header="bootstrapIndex,trueId,effectRatio,r1,r2,rawR2,r3,r4,rawR4\n"
         a_file.write(header)
         for user in range(len(r2s)):
-            statisticsLine=str(user)+","+str(effectIds[user])+","+str(effectRatios[user])+","+str(r1s[user])+ ","+str(r2s[user])+ ","+ str(rawR2s[user])
+            statisticsLine=str(user)+","+str(effectIds[user])+","+str(effectRatios[user])+","+str(r1s[user])+ ","+str(r2s[user])+ ","+ str(rawR2s[user])+","+str(r3s[user])+","+str(r4s[user])+","+str(rawR4s[user])
             a_file.write(statisticsLine+"\n")
         a_file.close()
 
@@ -204,22 +220,13 @@ def main():
             interestings=[]
             for i in range(len(bs_result)):
                 result=computeMetricSlidingDay(bs_result[i], indexFS,delta1=delta1, delta2=delta2)
-                #print("USER "+str(i))
                 r1s.append(result['r1'])
                 r2s.append(result['r2'])
                 rawR2s.append(result['rawR2'])
                 effectRatios.append(result['stdEffectRatio'])
                 effectIds.append(realIds[i])
-                interestings.append(result['isInteresting'])
                 if result['r1']!=None and result['r2']!=None:
                     pass
-#                    if result['isInteresting']:
-#                        print("found interesting user")
-#                        interestingIds.append(i)
-#                        outputPath = os.path.join(args.output, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific), "Bootstrap-" + str(args.bootstrap))#, "user-"+str(i))
-#                        if args.user_specific:
-#                            outputPath = os.path.join(args.output, "Baseline-"+ str(args.baseline)+"_UserSpecific-"+str(args.user_specific)+"_User-"+str(args.user), "Bootstrap-" + str(args.bootstrap))
-#                        plotUserDay(result, bs_result[i], i, outputPath, F_KEYS[indexFS], args.user_specific)
                 else:
                     nNone=nNone+1
 
@@ -244,7 +251,7 @@ def main():
             statisticsLine=str(nNone)
             a_file.write(statisticsLine+"\n")
             a_file.close()
-    print("Finished "+str(args.bootstrap))
+    print("Finished "+str(args.baseline))#+ " , "+str(user))
 
 if __name__=="__main__":
     main()

@@ -14,6 +14,8 @@ import matplotlib as mpl
 import pylab
 from matplotlib import rc
 
+from statistics import NormalDist
+
 fix_plot_settings = True
 if fix_plot_settings:
     plt.rc('font', family='serif')
@@ -55,9 +57,10 @@ def rindex(l, value):
             return i
     return -1
 
-def computeMetricSlidingDay(result, indexFS, x=2, delta1=.5, delta2=.5):
+def computeMetricSlidingDay(result, indexFS, x=2, delta1=.5, delta2=.5, IGNORE_ETA=False):
     # iterate through sliding windows
     #idx = np.where(data[:T,2]==1)[0]
+    #ndata=replace with first timeopint where where its all 0
     ndata=rindex(result['availability'][:T], 1)+1 # +1 for actual number of timepoints. #np.where(data[:T,1]==0)[0] #first time the user is out
     if ndata==0: #if no 1 is found
         print("no availability :(")
@@ -82,8 +85,13 @@ def computeMetricSlidingDay(result, indexFS, x=2, delta1=.5, delta2=.5):
 
                 sigma=result['post_beta_sigma'][day*5][-len(F_KEYS):, -len(F_KEYS):]
                 std=math.sqrt((result['fs'][ts] @ sigma.T) @ result['fs'][ts])
-                stdEffect=mean/std
+                eta=result['etas'][ts]
+                if IGNORE_ETA:
+                    eta=0
+                    print("ignoring eta")
+                stdEffect=(mean-eta)/std
 
+                #stdEffect=NormalDist().inv_cdf(result['prob'])
                 standardizedEffectsUser.append(stdEffect)
                 engaged.append(result['fs'][ts, indexFS])
                 if result['fs'][ts, indexFS]:
@@ -107,6 +115,10 @@ def computeMetricSlidingDay(result, indexFS, x=2, delta1=.5, delta2=.5):
     nInterestingDeterminedWindows=0
     nSlidingWindows=NDAYS#last_day+1, so those who drop out after 10 days do not come out as interesting
     nDeterminedWindows=0
+
+    nInterestingDeterminedWindows_intscore1=0
+    nSlidingWindows_intscore1=NDAYS#last_day+1, so those who drop out after 10 days do not come out as interesting
+    nDeterminedWindows_intscore1=0
 
     avgEngageAll=[]
     avgNonEngageAll=[]
@@ -155,10 +167,6 @@ def computeMetricSlidingDay(result, indexFS, x=2, delta1=.5, delta2=.5):
         enoughUpdates = (sum(avail_idx_pre2)>0) or (sum(avail_idx_pre1)>0) or (sum(avail_idx_cur)>0) #a function of non observed reward. 
         # One flag will be true if an update happened day before, meaning at least one available and nonNanReward point exists
 
-        # if day==0 or day==effLastDay-1:
-        #     import pdb
-        #     pdb.set_trace()
-
         isDetermined = (nBlue >=x) and (nRed >= x) and enoughUpdates
 
         if isDetermined:
@@ -176,7 +184,15 @@ def computeMetricSlidingDay(result, indexFS, x=2, delta1=.5, delta2=.5):
             if avgEngage > avgNonEngage:
                 nInterestingDeterminedWindows=nInterestingDeterminedWindows+1
 
+        if sum(avail_idx_pre1) > 0 or day==0:#for int_score1
+            effects_intscore1=standardizedEffectsUser[(day*NTIMES):(day*NTIMES+NTIMES)]
+            if len(effects_intscore1[effects_intscore1!=-1])>=2:
+                nDeterminedWindows_intscore1=nDeterminedWindows_intscore1+1
+                if np.mean(effects_intscore1[effects_intscore1!=-1])>0:
+                    nInterestingDeterminedWindows_intscore1=nInterestingDeterminedWindows_intscore1+1
+            
     nUndeterminedSlidingWindows=nSlidingWindows-nDeterminedWindows
+    nUndeterminedSlidingWindows_intscore1=nSlidingWindows_intscore1-nDeterminedWindows_intscore1
 
     # output
     statistic={}
@@ -189,7 +205,17 @@ def computeMetricSlidingDay(result, indexFS, x=2, delta1=.5, delta2=.5):
         statistic["r1"]=None
         statistic["r2"]=None
         statistic["rawR2"]=None
-        statistic["isInteresting"]=False
+        statistic["isInteresting"]=None
+    if nSlidingWindows_intscore1>0 and nDeterminedWindows_intscore1 > 0:
+        statistic["r3"]=nUndeterminedSlidingWindows_intscore1/nSlidingWindows_intscore1#modified to just be for if there are enough updates.
+        statistic["rawR4"]=nInterestingDeterminedWindows_intscore1/nDeterminedWindows_intscore1 #
+        statistic["r4"]=abs(nInterestingDeterminedWindows_intscore1/nDeterminedWindows_intscore1 - 0.5) #
+        statistic["isInteresting"]=(statistic["r3"]<=delta1) and (statistic["r4"]>=delta2)
+    else:
+        statistic["r3"]=None
+        statistic["r4"]=None
+        statistic["rawR4"]=None
+        statistic["isInteresting"]=None
     
     # to reproduce twin curves of avg of engaged and not engaged effects at dtermiend times
     statistic["determinedTimes"]=determinedTimes
@@ -360,6 +386,9 @@ def main():
             effectIds.append(i)
             print(result['r1'])
             print(result['r2'])
+            print(result['r3'])
+            print(result['r4'])
+            print(result['rawR4'])
             if result['isInteresting']:
                 results.append(result)
                 print("found interesting user")
@@ -367,7 +396,7 @@ def main():
                 interestingR2s.append(result['r2'])
                 interestingR1s.append(result['r1'])
                 print(result['rawR2'])
-            b,r=plotUserDay(result, original_result[i], i, outputPath, F_KEYS[indexFS])
+            #b,r=plotUserDay(result, original_result[i], i, outputPath, F_KEYS[indexFS])
         else:
             nNone=nNone+1
 
@@ -484,7 +513,7 @@ def main():
     # print(FS_availPeepsNo)
 
     import pdb
-    pdb.set_trace()
+    #pdb.set_trace()
     print("see percs")
     print(np.percentile(r1s, percs))
     print(np.percentile(r2s, percs))
@@ -498,7 +527,7 @@ def main():
     print(len(ids))
 
     import pdb
-    pdb.set_trace()
+    #pdb.set_trace()
 
 
 # %%

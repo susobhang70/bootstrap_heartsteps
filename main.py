@@ -1,6 +1,8 @@
+### Main runner code for running Personalized HeartSteps algorithm (Liao et al, 2020) ###
+
 # %%
 import pandas as pd
-import pickle5 as pkl
+import pickle5 as pkl 
 import numpy as np
 import rpy2.robjects as robjects
 from collections import OrderedDict
@@ -92,12 +94,16 @@ def load_initial_run(residual_path, baseline_thetas_path, baseline):
         baseline_pickle = pkl.load(f)
     if baseline == "Prior":
         baseline_thetas = baseline_pickle["prior"]
+        print(baseline)
+        print(baseline_thetas[0:5])
     elif baseline == "Posterior":
         baseline_thetas = baseline_pickle["posterior"]
         print(baseline)
         print(baseline_thetas[0:5])
     elif baseline == "Zero":
         baseline_thetas = baseline_pickle["all0TxEffect"]
+        print(baseline)
+        print(baseline_thetas[0:5])
     elif baseline in F_KEYS:
         index=F_KEYS.index(baseline)#.index in 3.9, .equals in 3.7
         print(baseline)
@@ -190,7 +196,12 @@ def calculate_post_prob(ts, data, fs, beta_pmean, beta_psd, eta = 0):
 
     # First 7 days, use 0.2 or 0.25 as in the data
     if ts < 35:
-        return data[ts][3]
+        #return data[ts][3]
+        #if data[ts][3] == .2 or data[ts][3] == .25:
+        #    return data[ts][3]
+        #else:
+        #    return .25
+        return .25
 
     # Calculate the mean of the fs*beta distribution
     fs_beta_mean = fs.T.dot(beta_pmean)
@@ -217,6 +228,7 @@ def calculate_reward(ts, fs, gs, action, baseline_theta, residual_matrix):
     # Calculate reward
     estimated_reward = (gs @ alpha0) + action * (fs @ beta) #for dosage as baseline
     reward = residual_matrix[ts] + estimated_reward # this residual matrix will either by the one from original data or a resampled with replacemnet version if user-specific
+    #temporary sanity check with no noise!
 
     return reward
 
@@ -244,13 +256,13 @@ def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     F = fs_matrix[avail_idx]
     G = gs_matrix[avail_idx]
 
-    # If there are no available datapoints, return the prior
-    if(len(R) == 0):
-        return beta_mu, beta_sigma
-
     # Calculate prior mu and sigma
     prior_mu = np.hstack((alpha_mu, beta_mu, beta_mu))
     prior_sigma = linalg.block_diag(alpha_sigma, beta_sigma, beta_sigma)
+
+    # If there are no available datapoints, return the prior
+    if(len(R) == 0):
+        return prior_mu, prior_sigma
 
     # Calculate X and Y
     X = np.hstack((G, P * F, (A - P) * F))
@@ -260,9 +272,9 @@ def calculate_posterior_avail(alpha_sigma, alpha_mu, beta_sigma, beta_mu, sigma,
     post_mu, post_sigma = calculate_posteriors(X, Y, prior_mu, beta_sigmaInv, sigma)
 
     # Get the posterior beta mu and sigma
-    post_beta_mu, post_beta_sigma = post_mu[-F_LEN:], post_sigma[-F_LEN:, -F_LEN:]
-    
-    return post_beta_mu, post_beta_sigma
+    #post_beta_mu, post_beta_sigma = post_mu[-F_LEN:], post_sigma[-F_LEN:, -F_LEN:]
+    #return post_beta_mu, post_beta_sigma
+    return post_mu, post_sigma
 
 # %%
 def calculate_posterior_unavail(prior_alpha0_sigma, prior_alpha0_mu, sigma, availability_matrix, reward_matrix, gs_matrix, alpha0_sigmaInv):
@@ -516,7 +528,7 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     # Posterior initialized using priors
     post_alpha0_mu, post_alpha0_sigma = np.copy(alpha0_pmean), np.copy(alpha0_psd)
     post_alpha1_mu, post_alpha1_sigma = np.copy(alpha1_pmean), np.copy(alpha1_psd)
-    post_beta_mu, post_beta_sigma = np.copy(beta_pmean), np.copy(beta_psd)
+    post_beta_mu, post_beta_sigma = np.copy(prior_mu), np.copy(prior_sigma)
 
     # get inverses
     alpha0_sigmaInv=np.linalg.inv(alpha0_psd)
@@ -541,12 +553,17 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
     post_alpha1_sigma_matrix = np.zeros((NDAYS * NTIMES, G_LEN , G_LEN))
 
     # beta
-    post_beta_mu_matrix = np.zeros((NDAYS * NTIMES, F_LEN ))
-    post_beta_sigma_matrix = np.zeros((NDAYS * NTIMES, F_LEN , F_LEN ))
+    post_beta_mu_matrix = np.zeros((NDAYS * NTIMES, 2*F_LEN+G_LEN ))
+    post_beta_sigma_matrix = np.zeros((NDAYS * NTIMES, 2*F_LEN+G_LEN , 2*F_LEN+G_LEN ))
 
     eta = 0
     p_avail_avg = 0
     theta0, theta1 = np.zeros(NBASIS), np.zeros(NBASIS)
+
+    p_avail_avgs_matrix = np.zeros((NDAYS * NTIMES))
+    etas_matrix = np.zeros((NDAYS * NTIMES))
+    all_theta0=[]
+    all_theta1=[]
 
     for day in range(NDAYS):
         # loop for each decision time during the day
@@ -562,14 +579,13 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             availability_matrix[ts] = availability
 
             # If user is available
-            action, prob_fsb = 0, 0#.1
+            action, prob_fsb,eta = 0, 0,0
+            # Calculate probability of (fs x beta) > n
+            ### NOTE THAT eta and probs are calculated regardless of availability, and when availability=0, one would interpret eta/prob_fsb effectively as 0. This is done in case we want to calc effects during non avail times. ###
+            eta = calculate_eta(theta0, theta1, dosage, p_avail_avg, ts)
+            prob_fsb = calculate_post_prob(ts, data, fs, post_beta_mu[-F_LEN:], post_beta_sigma[-F_LEN:, -F_LEN:], eta)
+
             if availability == 1:
-                # Calculate probability of (fs x beta) > n
-                eta = calculate_eta(theta0, theta1, dosage, p_avail_avg, ts)
-
-                #print("\tAvailable: ETA is " + str(eta) + " . Dosage: " + str(dosage))
-                prob_fsb = calculate_post_prob(ts, data, fs, post_beta_mu, post_beta_sigma, eta)
-
                 # Sample action with probability prob_fsb from bernoulli distribution
                 action = select_action(prob_fsb)
 
@@ -579,6 +595,11 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
             # Save probability, features, action and reward
             prob_matrix[ts] = prob_fsb
             action_matrix[ts] = action
+            etas_matrix[ts]=eta
+            p_avail_avgs_matrix[ts]=p_avail_avg
+            
+            all_theta0.append(theta0)
+            all_theta1.append(theta1)
 
             # Save features and state
             reward_matrix[ts] = reward
@@ -609,13 +630,16 @@ def run_algorithm(data, user, boot_num, user_specific, residual_matrix, baseline
         # update value functions
         theta0, theta1, p_avail_avg = calculate_value_functions(availability_matrix[:ts + 1], action_matrix[:ts + 1], 
                                                     fs_matrix[:ts + 1], gs_matrix[:ts + 1], reward_matrix[:ts + 1], 
-                                                    post_beta_mu, post_alpha0_mu, post_alpha1_mu, ts)
+                                                    post_beta_mu[-F_LEN:], post_alpha0_mu, post_alpha1_mu, ts)
 
     result = {"availability": availability_matrix, "prob": prob_matrix, "action": action_matrix, "reward": reward_matrix,
             "post_alpha0_mu": post_alpha0_mu_matrix, "post_alpha0_sigma": post_alpha0_sigma_matrix,
             "post_alpha1_mu": post_alpha1_mu_matrix, "post_alpha1_sigma": post_alpha1_sigma_matrix,
             "post_beta_mu": post_beta_mu_matrix, "post_beta_sigma": post_beta_sigma_matrix,
-            "fs": fs_matrix, "gs": gs_matrix}
+            "fs": fs_matrix, "gs": gs_matrix,
+            "etas": etas_matrix, "p_avail_avg": p_avail_avgs_matrix,
+            "theta0": all_theta0, "theta1": all_theta1 
+            }
     
     # Save results
     with open(output_dir + f"/results_{user}_{boot_num}.pkl", "wb") as f:
@@ -650,11 +674,8 @@ def main():
 
     # Load data
     data = load_data()
-    #zeroDoseUsers=np.where(np.sum(data[:,:,6],axis=1)==0)[0]
-    #data = np.delete(data,zeroDoseUsers, axis=0)
 
     # Prepare directory for output and logging
-    #args.user_specific=False
     print(args.user_specific)
 
     # note if baseline in F_KEYS, we have an interestingness bootstrap (by nature of baseline thetas used)
