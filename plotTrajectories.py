@@ -275,7 +275,7 @@ def plotUserDayDateAndResims(result, resultRun, user, outputPath, stateName, bs_
     xs=np.array(range(len(result['engaged'])))
     availTimes = np.logical_and(~np.isnan(resultRun['reward']), resultRun['availability'] == 1)[:len(xs)]
     availTimes=np.where(resultRun['availability'] == 1)[0]
-    availTimes=availTimes[availTimes>=35]#get first week
+    #availTimes=availTimes[availTimes>=35]#get first week
     availsAndNonNanReward=xs[availTimes]
     mapper=['red','blue']
 
@@ -397,9 +397,7 @@ from os import listdir
 from os.path import isfile, join
 
 def main():
-    #indexFS=int(sys.argv[1])
-    #baseline=F_KEYS[indexFS]
-    baseline="Zero"
+    indexFS=int(sys.argv[1])
     user_specific=False
 
     original_result="./init/original_result_91.pkl"
@@ -413,12 +411,21 @@ def main():
     original_result=load_original_run(original_result)
 
     # users to plot
-    users=range(NUSERS)
-    users=[77]
-    indexFS=4
+    #users=range(NUSERS)
+    users=[]
+    baseline="Zero"
+    if indexFS == -1:
+        users=[77]
+        indexFS=4
+        baseline="Zero"
+    elif indexFS==4:
+        users=[4]
+        baseline=F_KEYS[indexFS]
+
 
     from slidingWindow_og import computeMetricSlidingDay
     #iterate thru
+    print(users)
     for i in users: #range(NUSERS):
         print("User "+str(i))
         resultSliding=computeMetricSlidingDay(original_result[i], indexFS,delta1=delta1, delta2=delta2)
@@ -437,8 +444,7 @@ def main():
                 bs_res=pkl.load(open(filepath, "rb"))
                 bs_results.append(bs_res)
                 bs_results_sliding.append(computeMetricSlidingDay(bs_res, indexFS, delta1=delta1, delta2=delta2))
-
-                plotUserDayDateAndResims(resultSliding, original_result[i], i, "./output/redblue", F_KEYS[indexFS], bs_results_sliding, bs_results, bootstrap)
+                plotUserDayDateAndResims(resultSliding, original_result[i], i, "./plots", F_KEYS[indexFS], bs_results_sliding, bs_results, bootstrap)
 
 # %%
 if __name__ == "__main__":

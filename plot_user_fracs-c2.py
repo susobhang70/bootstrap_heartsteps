@@ -20,7 +20,7 @@ from matplotlib import rc
 import seaborn as sns
 
 lsize=80
-axSize=60
+axSize=67
 def setPlotSettings(changeAx=False):
     fix_plot_settings = True
     if fix_plot_settings:
@@ -79,6 +79,7 @@ def main():
     iids=[]
     with open(original_result, 'rb') as handle:
         original_result=pkl.load(handle)
+    # Get R1 and R2 from original data, and candiate users via holderR2
     for result in original_result:
         result=computeMetricSlidingDay(result, experiment,delta1=delta1, delta2=delta2)
         intVal=False
@@ -89,7 +90,9 @@ def main():
                 rawR2s.append(result[r2RawKey])
                 intVal=True
                 iids.append(i)
-            holderR2s.append(float(result[r2Key]))
+                holderR2s.append(float(result[r2Key]))
+            else:
+                holderR2s.append('None')
         else:
             holderR2s.append('None')
         allRawR2.append(result[r2RawKey])
@@ -98,7 +101,7 @@ def main():
     ogR1=np.array(ogR1)
     ogR2=np.array(ogR2)
 
-    # Get the user index
+    # Get the bootstrapped values for each user ot compare to
     B=500
     delta1=.75
     delta2=.4
@@ -115,27 +118,33 @@ def main():
         output_dir = os.path.join(output, "Baseline-"+ str(baseline)+"_UserSpecific-"+str(True)+"_User-" + str(i))
         statistics=os.path.join(output_dir, "statistics.csv")
         results=os.path.join(output_dir, "results.csv")
-        if os.path.exists(results):
-            results=pd.read_csv(results)
-            ids=results['trueId']
-            c2RawUsers[str(i)]=results['rawR4']
+        results=pd.read_csv(results)
+        c2RawUsers[str(i)]=results[r2RawKey]
+        c2Users[str(i)]=results[r2Key]
     
-    #now get percs
+    #now get percs: Iterate through users and if they are of interest, then compute percentile
     percs=[]
     iids=[]
     allPercs=[]
     for i in users:
         perc=None
-        if len(c2Users[str(i)])>0:#only added if its interesting and r2 is good 
+        if holderR2s[i] != 'None':#only added if its interesting and r2 is good 
             perc=stats.percentileofscore(c2Users[str(i)], float(holderR2s[i]), 'weak')/100
+            print("User "+str(i)+". C2Score: "+str(allRawR2[i])+ ". perc: "+str(perc))
+            print(c2RawUsers["4"])
+            print(sum(c2RawUsers["4"]==0))
             perc=1-perc
             iids.append(i)
             percs.append(perc)
         allPercs.append(perc)
 
+    import pdb
+    pdb.set_trace()
+    print(allPercs)
+
     #plot histogram too!
     outputPath=os.path.join(output, "Baseline-"+ str(baseline)+"_UserSpecific-"+str(user_specific))
-    image=outputPath+'/histogram_percs_'+baseline+'_x=2'+'.pdf'
+    image="./plots"+'/histogram_percs_'+baseline+'_x=2'+'.pdf'
     plt.clf()
     setPlotSettings(True)
     plt.rcParams['text.usetex']=True
@@ -147,10 +156,13 @@ def main():
     for spine in ['top', 'right']:
         ax.spines[spine].set_visible(False)
     ax=plt.gca()
+
     from matplotlib.ticker import MaxNLocator
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     yticks = ax.yaxis.get_major_ticks()
     yticks[0].label1.set_visible(False)
+    #plt.xlim(left=-.05)
+    #plt.xticks([0, .25,.5,.75,1])
     plt.xlabel("")
     plt.ylabel("\# Users")
 
@@ -160,8 +172,8 @@ def main():
     plt.clf()
 
     for i in users:
-        if len(c2RawUsers[str(i)])>0:
-            image=output+'/histogram_c2s_user_'+str(i)+'_'+baseline+'_x=2'+'.pdf'
+        if ((i == 4 and baseline=="variation") or (i==77 and baseline=="Zero")):
+            image="./plots"+'/histogram_c2s_user_'+str(i)+'_'+baseline+'_x=2'+'.pdf'
             plt.clf()
             c2s=c2RawUsers[str(i)]
             setPlotSettings(True)
@@ -179,14 +191,8 @@ def main():
             plt.xlim(left=-.05)
             plt.xticks([0, .25,.5,.75,1])
             
-            if i==77 and baseline=="Zero": #for cosmetic purposes
-                labs=['0', '0.02','0.04','0.06','0.08','0.10','0.12','0.14']
-                vals=[float(lab) for lab in labs]
-                labs[0]=''
-                plt.yticks(vals,labs)
-            else:
-                yticks = ax.yaxis.get_major_ticks()
-                yticks[0].label1.set_visible(False)
+            yticks = ax.yaxis.get_major_ticks()
+            yticks[0].label1.set_visible(False)
             plt.tight_layout()
             plt.savefig(image, format="pdf")
             print(image)

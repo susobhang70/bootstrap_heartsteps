@@ -16,8 +16,8 @@ import matplotlib as mpl
 import pylab
 from matplotlib import rc
 
-lsize=60
-axSize=67
+lsize=80
+axSize=60
 
 def setPlotSettings(changeAx=False):
     fix_plot_settings = True
@@ -47,9 +47,29 @@ np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda 
 
 NUSERS = 91
 F_KEYS=["intercept", "dosage", "engagement", "other_location", "variation"]
+from aux import int_threshold
+import argparse
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1', 'True'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0','False'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def main():
-    experiment = int(sys.argv[1]) #max array size AND index is 10k. we could split 10k into 4 for 2.5 k jobs each, leading to ~28 bootstrap resamples. this is rather small, so opt to fill in experiment
+    p=argparse.ArgumentParser()
+    p.add_argument("-exp", "--experiment", type=int, required=True)
+    #p.add_argument("-side", "--one_sided", type=str2bool, required=True)
+    #p.add_argument("-low", "--lower", type=str2bool, required=True)
+    args=p.parse_args()
+    experiment = args.experiment
+    #one_sided = args.one_sided
+    #lower = args.lower
+
+    print(experiment)
 
     # Get the user index
     r1Key='r1'
@@ -60,6 +80,7 @@ def main():
         r1Key='r3'
         r2Key='r4'
         r2RawKey='rawR4'
+        #r2Key=r2RawKey
     else:
         baseline = F_KEYS[experiment]
 
@@ -76,18 +97,20 @@ def main():
     rawR2s=[]
 
     original_result="./init/original_result_91.pkl"
+    #original_result="./init/old_original_result_91.pkl"
     delta1=.5
     delta2=.2
     with open(original_result, 'rb') as handle:
         original_result=pkl.load(handle)#, handle, protocol=pkl.HIGHEST_PROTOCOL)
     for result in original_result:
-        result=computeMetricSlidingDay(result, experiment,delta1=delta1, delta2=delta2)
+        result=computeMetricSlidingDay(result, experiment,delta1=delta1, delta2=delta2, IGNORE_ETA=False)
         if result[r1Key] != None and result[r2Key] != None:
             ogR1.append(result[r1Key])
             ogR2.append(result[r2Key])
             rawR2s.append(result[r2RawKey])
     ogR1=np.array(ogR1)
     ogR2=np.array(ogR2)
+    rawR2=np.array(rawR2s)
     
     # range of \gamma and \delta to go over
     d1s=[.75, .70,.65]
@@ -102,11 +125,11 @@ def main():
         heatMapRowR1=[]
         for delta2 in d2s:
             bInteresting=[]
+            #if baseline=="Zero":
+            #    delta2=delta2+.5
             observed=sum(np.logical_and(ogR1 <= delta1, ogR2 >= delta2))
             t=np.logical_and(ogR1 <= delta1, ogR2 >= delta2)
             indices=[i for i in range(len(t)) if t[i]]
-            #print("Interesting users for d1 = "+str(delta1)+ " , d2 = "+str(delta2))
-            #print(indices)
             heatMapRowR1.append(sum(ogR1<=delta1))
             for bootstrap in range(B):
                 output_dir = os.path.join(output, "Baseline-"+ str(baseline)+"_UserSpecific-"+str(user_specific), "Bootstrap-" + str(bootstrap))
@@ -130,34 +153,51 @@ def main():
 
             percs=[0,25,50,75,100]
             perc=stats.percentileofscore(bInteresting, observed, 'weak')/100
-            quantiles=np.percentile(bInteresting,percs)
+            print("Interesting users for d1 = "+str(delta1)+ " , d2 = "+str(delta2)+": "+str(observed)+" with perc "+str(perc))
             heatMapRow.append(1-perc)
 
             #plot histogram too!
-            outputPath=os.path.join(output, "Baseline-"+ str(baseline)+"_UserSpecific-"+str(user_specific))
-            image=outputPath+'/histogram_Interesting_'+baseline+"_delta1="+str(delta1)+"_delta2="+str(delta2)+"_B="+str(B)+'.pdf'
-            plt.clf()
-            setPlotSettings(True)
-            plt.rcParams['text.usetex'] = True
-            fig, ax = plt.subplots(figsize=(15, 15))
-            barcol='gray'
-            df=pd.DataFrame(bInteresting, columns=['nInt'])
-            bins="auto"
-            p = sns.histplot(data=df, x='nInt', bins=bins, stat='probability', ax=ax, color=barcol, cbar_kws={"linewidth":0}, line_kws={"linewidth":0}, linewidth=0)
-            for spine in ['top', 'right']:
-                ax.spines[spine].set_visible(False)
-            yticks = ax.yaxis.get_major_ticks() 
-            yticks[0].label1.set_visible(False)
-            plt.xlabel("")
-            plt.ylabel("Proportion")
-            plt.grid(axis='y', alpha=.5, zorder=0)
-            plt.axvline(observed, color='b', ls='-.', zorder=4, lw=6)
-            if experiment==3:
-                plt.xticks(range(0, 10, 2))
-            plt.xlim(left=0)
-            plt.tight_layout()
-            plt.savefig(image, format="pdf")
-            print(image)
+            if delta1==.75 and delta2==.4:
+                outputPath=os.path.join(output, "Baseline-"+ str(baseline)+"_UserSpecific-"+str(user_specific))
+                image="./plots"+'/histogram_Interesting_'+baseline+"_delta1="+str(delta1)+"_delta2="+str(delta2)+"_B="+str(B)+'.pdf'
+                plt.clf()
+                setPlotSettings(True)
+                plt.rcParams['text.usetex'] = True
+                fig, ax = plt.subplots(figsize=(15, 15))
+                barcol='gray'
+                df=pd.DataFrame(bInteresting, columns=['nInt'])
+                bins="auto"
+                p = sns.histplot(data=df, x='nInt', bins=bins, stat='probability', ax=ax, color=barcol, cbar_kws={"linewidth":0}, line_kws={"linewidth":0}, linewidth=0)
+                for spine in ['top', 'right']:
+                    ax.spines[spine].set_visible(False)
+                plt.xlabel("")
+                plt.ylabel("Proportion")
+                plt.grid(axis='y', alpha=.5, zorder=0)
+                plt.axvline(observed, color='b', ls='-.', zorder=4, lw=6)
+                #if experiment==3:
+                #    plt.xticks(range(0, 10, 2))
+                plt.xlim(left=0)
+                if baseline=="Zero" and delta1==.75 and delta2==.4:
+                    labs=['0', '0.02','0.04','0.06','0.08','0.10','0.12','0.14']
+                    vals=[float(lab) for lab in labs]
+                    labs[0]=''
+                    plt.yticks(vals,labs)
+                elif baseline=="other_location" and delta1==.75 and delta2==.4:
+                    labs=['0', '0.05','0.10','0.15','0.20','0.25','0.30','0.35']
+                    vals=[float(lab) for lab in labs]
+                    labs[0]=''
+                    plt.yticks(vals,labs)
+                elif baseline=="variation" and delta1==.75 and delta2==.4:
+                    labs=['0', '0.025','0.050','0.075','0.100','0.125','0.150','0.175']
+                    vals=[float(lab) for lab in labs]
+                    labs[0]=''
+                    plt.yticks(vals,labs)
+                else:
+                    yticks = ax.yaxis.get_major_ticks() 
+                    yticks[0].label1.set_visible(False)
+                plt.tight_layout()
+                plt.savefig(image, format="pdf", bbox_inches="tight")
+                print(image)
         
         heatMap.append(heatMapRow)
         heatMapR1.append(heatMapRowR1)
@@ -179,10 +219,10 @@ def main():
     toWrite=baseline
     if baseline=="other_location":
         toWrite="other location"
-    image=outputPath+'/heatMap_Interesting_'+toWrite+"_B="+str(B)+'.pdf'
+    image="./plots"+'/heatMap_Interesting_'+toWrite+"_B="+str(B)+'.pdf'
     plt.tight_layout()
     print(image)
-    f.savefig(image, format="pdf")
+    f.savefig(image, format="pdf", bbox_inches="tight")
     plt.clf()
 
 if __name__ == "__main__":

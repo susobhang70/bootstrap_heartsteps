@@ -75,7 +75,7 @@ def main():
     # if baseline is zero tx effect, then pull c1 for int score 1 instead of c1 for int score 2
     i=0
     for result in original_result:
-        result=computeMetricSlidingDay(result, experiment,delta1=gamma, delta2=delta)
+        result=computeMetricSlidingDay(result, experiment,delta1=gamma, delta2=delta, IGNORE_ETA=False)
         
         # get proper c1 value
         r1=result['r1']
@@ -88,16 +88,16 @@ def main():
         i=i+1
 
     ogR1=np.array(ogR1)
-    ogR2=np.array(ogR2)
 
     # plot the C1 values histogram
     outputPath=os.path.join(output, "Baseline-"+ str(baseline)+"_UserSpecific-"+str(user_specific))
-    image=outputPath+'/histogram_C1_'+baseline+'.pdf'
+    image="./plots"+'/histogram_C1_'+baseline+'.pdf'
     setPlotSettings(True)
     plt.rcParams['text.usetex'] = True
     fig, ax = plt.subplots(figsize=(15, 15))
     barcol='gray'
     df=pd.DataFrame(ogR1, columns=['rawR2s'])
+    print(df.shape)
     bins="auto"
     p = sns.histplot(data=df, x='rawR2s', bins=bins, stat='count', ax=ax, color=barcol, cbar_kws={"linewidth":0}, line_kws={"linewidth":0}, linewidth=0)
 
